@@ -17,6 +17,8 @@ package org.janusgraph.graphdb.database.cache;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 import org.janusgraph.diskstorage.EntryList;
 import org.janusgraph.graphdb.idmanagement.IDManager;
 import org.janusgraph.graphdb.relations.EdgeDirection;
@@ -24,8 +26,6 @@ import org.janusgraph.graphdb.types.system.BaseKey;
 import org.janusgraph.graphdb.types.system.BaseLabel;
 import org.janusgraph.graphdb.types.system.BaseRelationType;
 import org.janusgraph.graphdb.types.system.SystemRelationType;
-import org.apache.tinkerpop.gremlin.structure.Direction;
-import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -174,13 +174,6 @@ public class StandardSchemaCache implements SchemaCache {
         assert entries!=null;
         return entries;
     }
-
-//    @Override
-//    public void expireSchemaName(final String name) {
-//        ConcurrentMap<String,Long> types = typeNames;
-//        if (types!=null) types.remove(name);
-//        typeNamesBackup.invalidate(name);
-//    }
 
     @Override
     public void expireSchemaElement(final long schemaId) {

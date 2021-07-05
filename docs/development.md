@@ -17,7 +17,7 @@ is not limited to:
 For these sorts of changes, contributors will:
 
 - Create one or more issues in the GitHub issue tracker
-- Start a DISCUSS thread on the [janusgraph-dev](https://groups.google.com/forum/#!forum/janusgraph-dev)
+- Start a DISCUSS thread on the [janusgraph-dev](https://lists.lfaidata.foundation/g/janusgraph-dev)
  list where the proposed change may be discussed by committers and other community members
 - When the proposer feels it appropriate, a VOTE shall be called
 - Two +1 votes are required for the change to be accepted
@@ -118,7 +118,7 @@ is merged into a downstream release branch.
 
 Any JanusGraph committer may propose a release. To propose a release,
 simple start a new RELEASE thread on
-[janusgraph-dev](https://groups.google.com/forum/#!forum/janusgraph-dev)
+[janusgraph-dev](https://lists.lfaidata.foundation/g/janusgraph-dev)
 proposing the new release and requesting feedback on what should be
 included in the release. After consensus is reached the release manager
 will perform the following tasks:
@@ -126,7 +126,7 @@ will perform the following tasks:
 -   Create a release branch so that work may continue on `master`
 -   Prepare the release artifacts
 -   Call a vote to approve the release on
-    [janusgraph-dev](https://groups.google.com/forum/#!forum/janusgraph-dev)
+    [janusgraph-dev](https://lists.lfaidata.foundation/g/janusgraph-dev)
 -   Committers will be given 72 hours to review and vote on the release
     artifacts
 -   Three +1 votes are required for a release to be approved
@@ -164,17 +164,19 @@ releases and therefore unstable and likely to change. Unless one is
 interested in the most recent development status of JanusGraph, we
 recommend to use the stable JanusGraph release instead.
 
-```xml tab='Maven'
-<dependency>
-    <groupId>org.janusgraph</groupId>
-    <artifactId>janusgraph-core</artifactId>
-    <version>{{ snapshot_version }}</version>
-</dependency>
-```
+=== "Maven"
+    ```xml
+    <dependency>
+        <groupId>org.janusgraph</groupId>
+        <artifactId>janusgraph-core</artifactId>
+        <version>{{ snapshot_version }}</version>
+    </dependency>
+    ```
 
-```groovy tab='Gradle'
-compile "org.janusgraph:janusgraph-core:{{ snapshot_version }}"
-```
+=== "Gradle"
+    ```groovy
+    compile "org.janusgraph:janusgraph-core:{{ snapshot_version }}"
+    ```
 
 Check the [master branch](https://github.com/JanusGraph/janusgraph/tree/master) for the
 most current release version. SNAPSHOTs will be available through the
@@ -182,28 +184,30 @@ most current release version. SNAPSHOTs will be available through the
 
 When adding this dependency, be sure to add the following repository to build file:
 
-```xml tab='Maven'
-<repository>
-  <id>ossrh</id>
-  <name>Sonatype Nexus Snapshots</name>
-  <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-  <releases>
-    <enabled>false</enabled>
-  </releases>
-  <snapshots>
-    <enabled>true</enabled>
-  </snapshots>
-</repository>
-```
+=== "Maven"
+    ```xml
+    <repository>
+      <id>ossrh</id>
+      <name>Sonatype Nexus Snapshots</name>
+      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+    </repository>
+    ```
 
-```groovy tab='Gradle'
-maven {
-  url "https://oss.sonatype.org/content/repositories/snapshots"
-  mavenContent {
-    snapshotsOnly()
-  }
-}
-```
+=== "Gradle"
+    ```groovy
+    maven {
+      url "https://oss.sonatype.org/content/repositories/snapshots"
+      mavenContent {
+        snapshotsOnly()
+      }
+    }
+    ```
 
 ### FAQs
 

@@ -14,11 +14,8 @@
 
 package org.janusgraph.graphdb.tinkerpop;
 
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.function.Consumer;
-
-import org.apache.commons.configuration.Configuration;
+import com.google.common.base.Preconditions;
+import org.apache.commons.configuration2.Configuration;
 import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Graph;
@@ -48,7 +45,9 @@ import org.janusgraph.graphdb.olap.computer.FulgoraGraphComputer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Preconditions;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.function.Consumer;
 
 /**
  * Blueprints specific implementation for {@link JanusGraph}.
@@ -97,6 +96,8 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
 
     @Override
     public synchronized void close() {
+        // If user closes the graph before committing/rolling back thread-bound transactions, there could be a leakage.
+        // In case that happens, here we at least remove the ThreadLocal object belonging to the current thread.
         txs.remove();
         txs = null;
     }
@@ -285,6 +286,24 @@ public abstract class JanusGraphBlueprintsGraph implements JanusGraph {
 
         public GraphTransaction() {
             super(JanusGraphBlueprintsGraph.this);
+        }
+
+        @Override
+        public void commit() {
+            try {
+                super.commit();
+            } finally {
+                doClose();
+            }
+        }
+
+        @Override
+        public void rollback() {
+            try {
+                super.rollback();
+            } finally {
+                doClose();
+            }
         }
 
         @Override

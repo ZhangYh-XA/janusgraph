@@ -15,22 +15,26 @@
 package org.janusgraph.graphdb.query.graph;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
-import org.janusgraph.core.*;
+import org.apache.tinkerpop.gremlin.structure.Element;
+import org.janusgraph.core.JanusGraphEdge;
+import org.janusgraph.core.JanusGraphElement;
+import org.janusgraph.core.JanusGraphIndexQuery;
+import org.janusgraph.core.JanusGraphVertex;
+import org.janusgraph.core.JanusGraphVertexProperty;
 import org.janusgraph.core.schema.Parameter;
 import org.janusgraph.graphdb.database.IndexSerializer;
 import org.janusgraph.graphdb.internal.ElementCategory;
 import org.janusgraph.graphdb.query.BaseQuery;
 import org.janusgraph.graphdb.transaction.StandardJanusGraphTx;
 import org.janusgraph.graphdb.util.StreamIterable;
-import org.apache.tinkerpop.gremlin.structure.Element;
-import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -99,8 +103,8 @@ public class IndexQueryBuilder extends BaseQuery implements JanusGraphIndexQuery
         this.tx = tx;
         this.serializer = serializer;
 
-        parameters = Lists.newArrayList();
-        orders = Lists.newArrayList();
+        parameters = new ArrayList<>();
+        orders = new ArrayList<>();
         unknownKeyName = tx.getGraph().getConfiguration().getUnknownIndexKeyName();
         this.offset=0;
     }
@@ -121,8 +125,11 @@ public class IndexQueryBuilder extends BaseQuery implements JanusGraphIndexQuery
         return query;
     }
 
-    public ImmutableList<Parameter<Order>> getOrders() {
-        return ImmutableList.copyOf(orders);
+    public List<Parameter<Order>> getOrders() {
+        if(orders.isEmpty()){
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(orders);
     }
 
     public int getOffset() {

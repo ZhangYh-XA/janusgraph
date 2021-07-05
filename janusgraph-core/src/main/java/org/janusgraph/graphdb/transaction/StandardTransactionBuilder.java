@@ -14,20 +14,24 @@
 
 package org.janusgraph.graphdb.transaction;
 
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.ROOT_NS;
-
-import java.time.Instant;
 import com.google.common.base.Preconditions;
-import org.janusgraph.core.schema.DefaultSchemaMaker;
 import org.janusgraph.core.JanusGraphTransaction;
 import org.janusgraph.core.TransactionBuilder;
-import org.janusgraph.diskstorage.configuration.*;
-
+import org.janusgraph.core.schema.DefaultSchemaMaker;
 import org.janusgraph.diskstorage.BaseTransactionConfig;
+import org.janusgraph.diskstorage.configuration.ConfigElement;
+import org.janusgraph.diskstorage.configuration.ConfigOption;
+import org.janusgraph.diskstorage.configuration.Configuration;
+import org.janusgraph.diskstorage.configuration.MergedConfiguration;
+import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.util.StandardBaseTransactionConfig;
+import org.janusgraph.diskstorage.util.time.TimestampProvider;
 import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
 import org.janusgraph.graphdb.database.StandardJanusGraph;
-import org.janusgraph.diskstorage.util.time.TimestampProvider;
+
+import java.time.Instant;
+
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.ROOT_NS;
 
 /**
  * Used to configure a {@link org.janusgraph.core.JanusGraphTransaction}.
@@ -135,6 +139,16 @@ public class StandardTransactionBuilder implements TransactionConfiguration, Tra
     @Override
     public StandardTransactionBuilder readOnly() {
         this.isReadOnly = true;
+        return this;
+    }
+
+    @Override
+    public StandardTransactionBuilder readOnlyOLAP() {
+        isReadOnly = true;
+        preloadedData = true;
+        verifyInternalVertexExistence = false;
+        dirtyVertexSize = 0;
+        vertexCacheSize = 0;
         return this;
     }
 

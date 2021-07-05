@@ -14,15 +14,15 @@
 
 package org.janusgraph.graphdb.database.management;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import org.janusgraph.core.PropertyKey;
 import org.janusgraph.core.JanusGraph;
-import org.janusgraph.core.schema.SchemaStatus;
+import org.janusgraph.core.PropertyKey;
 import org.janusgraph.core.schema.JanusGraphIndex;
 import org.janusgraph.core.schema.JanusGraphManagement;
+import org.janusgraph.core.schema.SchemaStatus;
 import org.janusgraph.diskstorage.util.time.Timer;
 import org.janusgraph.diskstorage.util.time.TimestampProviders;
+import org.janusgraph.util.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,8 +77,8 @@ public class GraphIndexStatusWatcher
                     management.rollback(); // Let an exception here propagate up the stack
             }
 
-            String waitingOn = Joiner.on(",").withKeyValueSeparator("=").join(notConverged);
             if (!notConverged.isEmpty()) {
+                String waitingOn = StringUtils.join(notConverged, "=", ",");
                 LOGGER.info("Some key(s) on index {} do not currently have status(es) {}: {}", graphIndexName, statuses, waitingOn);
             } else {
                 LOGGER.info("All {} key(s) on index {} have status(es) {}", converged.size(), graphIndexName, statuses);

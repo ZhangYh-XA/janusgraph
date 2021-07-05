@@ -14,17 +14,11 @@
 
 package org.janusgraph.core.util;
 
-import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.util.*;
-
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
+import com.google.common.base.Preconditions;
+import org.janusgraph.diskstorage.configuration.ConfigOption;
 import org.janusgraph.diskstorage.util.time.Timer;
 import org.janusgraph.diskstorage.util.time.TimestampProviders;
+import org.janusgraph.graphdb.configuration.PreInitializeConfigOptions;
 import org.reflections8.Reflections;
 import org.reflections8.scanners.SubTypesScanner;
 import org.reflections8.scanners.TypeAnnotationsScanner;
@@ -32,9 +26,19 @@ import org.reflections8.vfs.Vfs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Preconditions;
-import org.janusgraph.diskstorage.configuration.ConfigOption;
-import org.janusgraph.graphdb.configuration.PreInitializeConfigOptions;
+import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 
 /**
  * This class supports iteration over JanusGraph's ConfigNamespaces at runtime.
@@ -70,7 +74,7 @@ public enum ReflectiveConfigOptionLoader {
     }
 
     public ReflectiveConfigOptionLoader setPreferredClassLoaders(List<ClassLoader> loaders) {
-        cfg = cfg.setPreferredClassLoaders(ImmutableList.copyOf(loaders));
+        cfg = cfg.setPreferredClassLoaders(Collections.unmodifiableList(new ArrayList<>(loaders)));
         return this;
     }
 
@@ -116,7 +120,7 @@ public enum ReflectiveConfigOptionLoader {
          * We could probably hard-code the initialization of the janusgraph-core classes,
          * but the benefit isn't substantial.
          */
-        List<String> classnames = ImmutableList.of(
+        List<String> classnames = Collections.unmodifiableList(Arrays.asList(
             "org.janusgraph.diskstorage.hbase.HBaseStoreManager",
             "org.janusgraph.diskstorage.cql.CQLConfigOptions",
             "org.janusgraph.diskstorage.es.ElasticSearchIndex",
@@ -126,9 +130,10 @@ public enum ReflectiveConfigOptionLoader {
             "org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration",
             "org.janusgraph.graphdb.database.idassigner.placement.SimpleBulkPlacementStrategy",
             "org.janusgraph.graphdb.database.idassigner.VertexIDAssigner",
+            "org.janusgraph.graphdb.query.index.ThresholdBasedIndexSelectionStrategy",
             //"org.janusgraph.graphdb.TestMockIndexProvider",
             //"org.janusgraph.graphdb.TestMockLog",
-            "org.janusgraph.diskstorage.berkeleyje.BerkeleyJEStoreManager");
+            "org.janusgraph.diskstorage.berkeleyje.BerkeleyJEStoreManager"));
 
         Timer t = new Timer(TimestampProviders.MILLI);
         t.start();
@@ -175,9 +180,8 @@ public enum ReflectiveConfigOptionLoader {
 
     private List<ClassLoader> getClassLoaders(LoaderConfiguration cfg, Class<?> caller) {
 
-        final ImmutableList.Builder<ClassLoader> builder = ImmutableList.builder();
+        final List<ClassLoader> builder = new ArrayList<>(cfg.preferredLoaders);
 
-        builder.addAll(cfg.preferredLoaders);
         for (ClassLoader c : cfg.preferredLoaders)
             log.debug("Added preferred classloader to config option loader chain: {}", c);
 
@@ -193,7 +197,7 @@ public enum ReflectiveConfigOptionLoader {
             log.debug("Added caller classloader to config option loader chain: {}", c);
         }
 
-        return builder.build();
+        return Collections.unmodifiableList(builder);
     }
 
     /**
@@ -209,7 +213,7 @@ public enum ReflectiveConfigOptionLoader {
             // We could probably narrow the caught exception type to Error or maybe even just LinkageError,
             // but in this case catching anything via Throwable seems appropriate.  RuntimeException is
             // not sufficient -- it wouldn't even catch NoClassDefFoundError.
-            log.error("Failed to iterate over classpath using Reflections; this usually indicates a broken classpath/classloader", PreInitializeConfigOptions.class, t);
+            log.error("Failed to iterate over classpath using Reflections; this usually indicates a broken classpath/classloader", t);
         }
     }
 
@@ -265,14 +269,14 @@ public enum ReflectiveConfigOptionLoader {
      */
     private Set<URL> forClassLoaders(List<ClassLoader> loaders) {
 
-        final Set<URL> result = Sets.newHashSet();
+        final Set<URL> result = new HashSet<>();
 
         for (ClassLoader classLoader : loaders) {
             while (classLoader != null) {
                 if (classLoader instanceof URLClassLoader) {
                     URL[] urls = ((URLClassLoader) classLoader).getURLs();
                     if (urls != null) {
-                        result.addAll(Sets.newHashSet(urls));
+                        result.addAll(Arrays.asList(urls));
                     }
                 }
                 classLoader = classLoader.getParent();
@@ -330,7 +334,7 @@ public enum ReflectiveConfigOptionLoader {
 
         private LoaderConfiguration() {
             enabled = getEnabledByDefault();
-            preferredLoaders = ImmutableList.of(ReflectiveConfigOptionLoader.class.getClassLoader());
+            preferredLoaders = Collections.singletonList(ReflectiveConfigOptionLoader.class.getClassLoader());
             useCallerLoader = true;
             useThreadContextLoader = true;
         }

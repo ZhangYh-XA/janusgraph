@@ -15,20 +15,28 @@
 package org.janusgraph.graphdb.types;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
-import org.janusgraph.core.*;
+import org.janusgraph.core.Multiplicity;
+import org.janusgraph.core.PropertyKey;
 import org.janusgraph.core.schema.RelationTypeMaker;
 import org.janusgraph.core.schema.SchemaStatus;
 import org.janusgraph.graphdb.database.IndexSerializer;
 import org.janusgraph.graphdb.database.serialize.AttributeHandler;
-import org.janusgraph.graphdb.internal.Order;
 import org.janusgraph.graphdb.internal.JanusGraphSchemaCategory;
+import org.janusgraph.graphdb.internal.Order;
 import org.janusgraph.graphdb.transaction.StandardJanusGraphTx;
 import org.janusgraph.graphdb.types.system.SystemTypeManager;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 
-import static org.janusgraph.graphdb.types.TypeDefinitionCategory.*;
+import static org.janusgraph.graphdb.types.TypeDefinitionCategory.INVISIBLE;
+import static org.janusgraph.graphdb.types.TypeDefinitionCategory.MULTIPLICITY;
+import static org.janusgraph.graphdb.types.TypeDefinitionCategory.SIGNATURE;
+import static org.janusgraph.graphdb.types.TypeDefinitionCategory.SORT_KEY;
+import static org.janusgraph.graphdb.types.TypeDefinitionCategory.SORT_ORDER;
+import static org.janusgraph.graphdb.types.TypeDefinitionCategory.STATUS;
 
 public abstract class StandardRelationTypeMaker implements RelationTypeMaker {
 
@@ -79,26 +87,28 @@ public abstract class StandardRelationTypeMaker implements RelationTypeMaker {
         checkSortKey(sortKey);
         Preconditions.checkArgument(sortOrder==Order.ASC || hasSortKey(),"Must define a sort key to use ordering");
         checkSignature(signature);
-        Preconditions.checkArgument(Sets.intersection(Sets.newHashSet(sortKey), Sets.newHashSet(signature)).isEmpty(),
-                "Signature and sort key must be disjoined");
+        HashSet<PropertyKey> sortKeyHashSet = new HashSet<>(sortKey);
+        if(signature.stream().anyMatch(sortKeyHashSet::contains)){
+            throw new IllegalArgumentException("Signature and sort key must be disjoined");
+        }
         Preconditions.checkArgument(!hasSortKey() || !multiplicity.isConstrained(),"Cannot define a sort-key on constrained edge labels");
     }
 
     private long[] checkSortKey(List<PropertyKey> sig) {
         for (PropertyKey key : sig) {
             Preconditions.checkArgument(attributeHandler.isOrderPreservingDatatype(key.dataType()),
-                    "Key must have an order-preserving data type to be used as sort key: " + key);
+                    "Key must have an order-preserving data type to be used as sort key: %s", key);
         }
         return checkSignature(sig);
     }
 
     private static long[] checkSignature(List<PropertyKey> sig) {
-        Preconditions.checkArgument(sig.size() == (Sets.newHashSet(sig)).size(), "Signature and sort key cannot contain duplicate types");
+        Preconditions.checkArgument(sig.size() == (new HashSet<>(sig)).size(), "Signature and sort key cannot contain duplicate types");
         long[] signature = new long[sig.size()];
         for (int i = 0; i < sig.size(); i++) {
             PropertyKey key = sig.get(i);
             Preconditions.checkNotNull(key);
-            Preconditions.checkArgument(!((PropertyKey) key).dataType().equals(Object.class),
+            Preconditions.checkArgument(!key.dataType().equals(Object.class),
                     "Signature and sort keys must have a proper declared datatype: %s", key.name());
             signature[i] = key.longId();
         }

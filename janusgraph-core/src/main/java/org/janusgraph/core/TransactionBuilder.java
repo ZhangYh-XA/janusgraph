@@ -14,8 +14,9 @@
 
 package org.janusgraph.core;
 
-import java.time.Instant;
 import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
+
+import java.time.Instant;
 
 /**
  * Constructor returned by {@link org.janusgraph.core.JanusGraph#buildTransaction()} to build a new transaction.
@@ -32,6 +33,13 @@ public interface TransactionBuilder {
      * @return Object containing read-only properties set to true
      */
     TransactionBuilder readOnly();
+
+    /**
+     * A shortcut for a number of configs that are commonly used by read-only OLAP jobs.
+     *
+     * @return Object containing a number of properties optimized for read-only OLAP jobs
+     */
+    TransactionBuilder readOnlyOLAP();
 
     /**
      * Enabling batch loading disables a number of consistency checks inside JanusGraph to speed up the ingestion of

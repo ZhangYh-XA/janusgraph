@@ -15,13 +15,13 @@
 package org.janusgraph.graphdb.database.log;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.janusgraph.core.log.Change;
 import org.janusgraph.diskstorage.ReadBuffer;
 import org.janusgraph.diskstorage.StaticBuffer;
 import org.janusgraph.diskstorage.util.BufferUtil;
 import org.janusgraph.diskstorage.util.HashingUtil;
+import org.janusgraph.diskstorage.util.time.TimestampProvider;
 import org.janusgraph.graphdb.database.idhandling.VariableLong;
 import org.janusgraph.graphdb.database.serialize.DataOutput;
 import org.janusgraph.graphdb.database.serialize.Serializer;
@@ -29,11 +29,16 @@ import org.janusgraph.graphdb.internal.InternalRelation;
 import org.janusgraph.graphdb.log.StandardTransactionId;
 import org.janusgraph.graphdb.transaction.StandardJanusGraphTx;
 import org.janusgraph.graphdb.transaction.TransactionConfiguration;
-import org.janusgraph.diskstorage.util.time.TimestampProvider;
-import org.apache.commons.lang.StringUtils;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -220,16 +225,18 @@ public class TransactionLogHeader {
 
         public Collection<Modification> getContentAsModifications(Serializer serializer) {
             Preconditions.checkArgument(status==LogTxStatus.PRECOMMIT || status==LogTxStatus.USER_LOG);
-            List<Modification> mods = Lists.newArrayList();
             ReadBuffer in = content.asReadBuffer();
-            mods.addAll(readModifications(Change.ADDED,in,serializer));
-            mods.addAll(readModifications(Change.REMOVED,in,serializer));
+            List<Modification> addedModifications = readModifications(Change.ADDED,in,serializer);
+            List<Modification> removedModifications = readModifications(Change.REMOVED,in,serializer);
+            List<Modification> mods = new ArrayList<>(addedModifications.size()+removedModifications.size());
+            mods.addAll(addedModifications);
+            mods.addAll(removedModifications);
             return mods;
         }
 
-        private static Collection<Modification> readModifications(Change state, ReadBuffer in, Serializer serializer) {
-            List<Modification> mods = Lists.newArrayList();
+        private static List<Modification> readModifications(Change state, ReadBuffer in, Serializer serializer) {
             long size = VariableLong.readPositive(in);
+            List<Modification> mods = new ArrayList<>((int) size);
             for (int i = 0; i < size; i++) {
                 long vid = VariableLong.readPositive(in);
                 org.janusgraph.diskstorage.Entry entry = BufferUtil.readEntry(in,serializer);
@@ -249,11 +256,11 @@ public class TransactionLogHeader {
             ReadBuffer in = content.asReadBuffer();
             this.userLogFailure = !in.getBoolean();
             int size = in.getInt();
-            ImmutableSet.Builder<String> builder = ImmutableSet.builder();
+            HashSet<String> failedIndexes = new HashSet<>(size);
             for (int i = 0; i < size; i++) {
-                builder.add(serializer.readObjectNotNull(in,String.class));
+                failedIndexes.add(serializer.readObjectNotNull(in,String.class));
             }
-            this.failedIndexes = builder.build();
+            this.failedIndexes = Collections.unmodifiableSet(failedIndexes);
         }
 
     }

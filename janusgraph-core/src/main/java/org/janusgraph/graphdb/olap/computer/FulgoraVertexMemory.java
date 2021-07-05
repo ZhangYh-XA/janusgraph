@@ -15,18 +15,21 @@
 package org.janusgraph.graphdb.olap.computer;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-import org.janusgraph.diskstorage.EntryList;
-import org.janusgraph.graphdb.idmanagement.IDManager;
 import org.apache.tinkerpop.gremlin.process.computer.MessageCombiner;
 import org.apache.tinkerpop.gremlin.process.computer.MessageScope;
 import org.apache.tinkerpop.gremlin.process.computer.VertexComputeKey;
 import org.apache.tinkerpop.gremlin.process.computer.VertexProgram;
 import org.cliffc.high_scale_lib.NonBlockingHashMapLong;
+import org.janusgraph.diskstorage.EntryList;
+import org.janusgraph.graphdb.idmanagement.IDManager;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -58,7 +61,7 @@ public class FulgoraVertexMemory<M> {
         this.combiner = vertexProgram.getMessageCombiner().orElse(null);
         this.computeKeys = vertexProgram.getVertexComputeKeys();
         this.elementKeyMap = getIdMap(vertexProgram.getVertexComputeKeys().stream().map(VertexComputeKey::getKey).collect(Collectors.toCollection(HashSet::new)));
-        this.previousScopes = ImmutableMap.of();
+        this.previousScopes = Collections.emptyMap();
     }
 
     private VertexState<M> get(long vertexId, boolean create) {
@@ -168,12 +171,12 @@ public class FulgoraVertexMemory<M> {
     }
 
     public static <K> Map<K,Integer> getIdMap(Iterable<K> elements) {
-        ImmutableMap.Builder<K,Integer> b = ImmutableMap.builder();
+        Map<K,Integer> b = new HashMap<>();
         int size = 0;
         for (K key : elements) {
             b.put(key,size++);
         }
-        return b.build();
+        return Collections.unmodifiableMap(b);
     }
 
 

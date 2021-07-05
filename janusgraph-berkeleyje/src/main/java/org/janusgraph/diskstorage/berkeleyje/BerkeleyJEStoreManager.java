@@ -16,8 +16,19 @@ package org.janusgraph.diskstorage.berkeleyje;
 
 
 import com.google.common.base.Preconditions;
-import com.sleepycat.je.*;
-import org.janusgraph.diskstorage.*;
+import com.sleepycat.je.CacheMode;
+import com.sleepycat.je.Database;
+import com.sleepycat.je.DatabaseConfig;
+import com.sleepycat.je.DatabaseException;
+import com.sleepycat.je.Environment;
+import com.sleepycat.je.EnvironmentConfig;
+import com.sleepycat.je.LockMode;
+import com.sleepycat.je.Transaction;
+import com.sleepycat.je.TransactionConfig;
+import org.janusgraph.diskstorage.BackendException;
+import org.janusgraph.diskstorage.BaseTransactionConfig;
+import org.janusgraph.diskstorage.PermanentBackendException;
+import org.janusgraph.diskstorage.StaticBuffer;
 import org.janusgraph.diskstorage.common.LocalStoreManager;
 import org.janusgraph.diskstorage.configuration.ConfigNamespace;
 import org.janusgraph.diskstorage.configuration.ConfigOption;
@@ -34,7 +45,6 @@ import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
 import org.janusgraph.graphdb.configuration.PreInitializeConfigOptions;
 import org.janusgraph.graphdb.transaction.TransactionConfiguration;
 import org.janusgraph.util.system.IOUtils;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,6 +77,11 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
             "The BDB record lock mode used for read operations",
             ConfigOption.Type.MASKABLE, String.class, LockMode.DEFAULT.toString(), disallowEmpty(String.class));
 
+    public static final ConfigOption<String> CACHE_MODE =
+        new ConfigOption<>(BERKELEY_NS, "cache-mode",
+            "Modes that can be specified for control over caching of records in the JE in-memory cache",
+            ConfigOption.Type.MASKABLE,  String.class, CacheMode.DEFAULT.toString(), disallowEmpty(String.class));
+
     public static final ConfigOption<String> ISOLATION_LEVEL =
             new ConfigOption<>(BERKELEY_NS, "isolation-level",
             "The isolation level used by transactions",
@@ -84,7 +99,8 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
 
         int cachePercentage = configuration.get(JVM_CACHE);
         boolean sharedCache = configuration.get(SHARED_CACHE);
-        initialize(cachePercentage, sharedCache);
+        CacheMode cacheMode = ConfigOption.getEnumValue(configuration.get(CACHE_MODE), CacheMode.class);
+        initialize(cachePercentage, sharedCache, cacheMode);
 
         features = new StandardStoreFeatures.Builder()
                     .orderedScan(true)
@@ -93,20 +109,22 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
                     .locking(true)
                     .keyOrdered(true)
                     .scanTxConfig(GraphDatabaseConfiguration.buildGraphConfiguration()
-                            .set(ISOLATION_LEVEL, IsolationLevel.READ_UNCOMMITTED.toString()))
+                            .set(ISOLATION_LEVEL, IsolationLevel.READ_UNCOMMITTED.toString())
+                    )
                     .supportsInterruption(false)
                     .cellTTL(true)
                     .optimisticLocking(false)
                     .build();
     }
 
-    private void initialize(int cachePercent, final boolean sharedCache) throws BackendException {
+    private void initialize(int cachePercent, final boolean sharedCache, final CacheMode cacheMode) throws BackendException {
         try {
             EnvironmentConfig envConfig = new EnvironmentConfig();
             envConfig.setAllowCreate(true);
             envConfig.setTransactional(transactional);
             envConfig.setCachePercent(cachePercent);
             envConfig.setSharedCache(sharedCache);
+            envConfig.setCacheMode(cacheMode);
 
             if (batchLoading) {
                 envConfig.setConfigParam(EnvironmentConfig.ENV_RUN_CHECKPOINTER, "false");
@@ -142,7 +160,7 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
 
             if (transactional) {
                 TransactionConfig txnConfig = new TransactionConfig();
-                ConfigOption.getEnumValue(effectiveCfg.get(ISOLATION_LEVEL),IsolationLevel.class).configure(txnConfig);
+                ConfigOption.getEnumValue(effectiveCfg.get(ISOLATION_LEVEL), IsolationLevel.class).configure(txnConfig);
                 tx = environment.beginTransaction(null, txnConfig);
             } else {
                 if (txCfg instanceof TransactionConfiguration) {
@@ -152,7 +170,12 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
                     }
                 }
             }
-            BerkeleyJETx btx = new BerkeleyJETx(tx, ConfigOption.getEnumValue(effectiveCfg.get(LOCK_MODE),LockMode.class), txCfg);
+            BerkeleyJETx btx =
+                new BerkeleyJETx(
+                    tx,
+                    ConfigOption.getEnumValue(effectiveCfg.get(LOCK_MODE), LockMode.class),
+                    ConfigOption.getEnumValue(effectiveCfg.get(CACHE_MODE), CacheMode.class),
+                    txCfg);
 
             if (log.isTraceEnabled()) {
                 log.trace("Berkeley tx created", new TransactionBegin(btx.toString()));
@@ -175,7 +198,6 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
             dbConfig.setReadOnly(false);
             dbConfig.setAllowCreate(true);
             dbConfig.setTransactional(transactional);
-
             dbConfig.setKeyPrefixing(true);
 
             if (batchLoading) {
@@ -257,7 +279,7 @@ public class BerkeleyJEStoreManager extends LocalStoreManager implements Ordered
     @Override
     public void clearStorage() throws BackendException {
         if (!stores.isEmpty()) {
-            throw new IllegalStateException("Cannot delete store, since database is open: " + stores.keySet().toString());
+            throw new IllegalStateException("Cannot delete store, since database is open: " + stores.keySet());
         }
 
         for (final String db : environment.getDatabaseNames()) {

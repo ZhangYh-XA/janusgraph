@@ -13,26 +13,27 @@
 // limitations under the License.
 package org.janusgraph.graphdb.transaction;
 
+import org.easymock.EasyMockSupport;
+import org.janusgraph.core.PropertyKey;
+import org.janusgraph.core.RelationType;
+import org.janusgraph.core.schema.DefaultSchemaMaker;
+import org.janusgraph.core.schema.PropertyKeyMaker;
+import org.janusgraph.diskstorage.util.time.TimestampProvider;
+import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
+import org.janusgraph.graphdb.database.EdgeSerializer;
+import org.janusgraph.graphdb.database.IndexSerializer;
+import org.janusgraph.graphdb.database.StandardJanusGraph;
+import org.janusgraph.graphdb.database.serialize.Serializer;
+import org.janusgraph.graphdb.idmanagement.IDManager;
+import org.janusgraph.graphdb.query.index.IndexSelectionStrategy;
+import org.janusgraph.graphdb.query.index.ThresholdBasedIndexSelectionStrategy;
+import org.junit.jupiter.api.Test;
+
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.isA;
 import static org.easymock.EasyMock.notNull;
 import static org.easymock.EasyMock.replay;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-
-import org.easymock.EasyMockSupport;
-import org.junit.jupiter.api.Test;
-
-import org.janusgraph.core.RelationType;
-import org.janusgraph.core.PropertyKey;
-import org.janusgraph.core.schema.DefaultSchemaMaker;
-import org.janusgraph.core.schema.PropertyKeyMaker;
-import org.janusgraph.diskstorage.util.time.TimestampProvider;
-import org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration;
-import org.janusgraph.graphdb.database.StandardJanusGraph;
-import org.janusgraph.graphdb.database.serialize.Serializer;
-import org.janusgraph.graphdb.database.EdgeSerializer;
-import org.janusgraph.graphdb.database.IndexSerializer;
-import org.janusgraph.graphdb.idmanagement.IDManager;
 
 public class StandardJanusGraphTxTest extends EasyMockSupport {
 
@@ -64,6 +65,7 @@ public class StandardJanusGraphTxTest extends EasyMockSupport {
         IDManager idManager = createMock(IDManager.class);
         PropertyKey propertyKey = createMock(PropertyKey.class);
         DefaultSchemaMaker defaultSchemaMaker = createMock(DefaultSchemaMaker.class);
+        IndexSelectionStrategy indexSelectionStrategy = createMock(ThresholdBasedIndexSelectionStrategy.class);
 
         expect(mockGraph.getConfiguration()).andReturn(gdbConfig);
         expect(mockGraph.isOpen()).andReturn(true).anyTimes();
@@ -71,6 +73,7 @@ public class StandardJanusGraphTxTest extends EasyMockSupport {
         expect(mockGraph.getEdgeSerializer()).andReturn(mockEdgeSerializer);
         expect(mockGraph.getIndexSerializer()).andReturn(mockIndexSerializer);
         expect(mockGraph.getIDManager()).andReturn(idManager);
+        expect(mockGraph.getIndexSelector()).andReturn(indexSelectionStrategy);
 
         expect(gdbConfig.getTimestampProvider()).andReturn(tsProvider);
 

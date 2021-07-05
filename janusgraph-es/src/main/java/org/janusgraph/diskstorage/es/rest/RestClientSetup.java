@@ -14,15 +14,7 @@
 
 package org.janusgraph.diskstorage.es.rest;
 
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_HOSTS;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_PORT;
-
-import java.io.IOException;
-import java.lang.reflect.Constructor;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-
+import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpHost;
 import org.apache.http.client.config.RequestConfig;
@@ -36,6 +28,7 @@ import org.janusgraph.diskstorage.configuration.Configuration;
 import org.janusgraph.diskstorage.es.ElasticSearchClient;
 import org.janusgraph.diskstorage.es.ElasticSearchIndex;
 import org.janusgraph.diskstorage.es.rest.util.BasicAuthHttpClientConfigCallback;
+import org.janusgraph.diskstorage.es.rest.util.ConnectionKeepAliveConfigCallback;
 import org.janusgraph.diskstorage.es.rest.util.HttpAuthTypes;
 import org.janusgraph.diskstorage.es.rest.util.RestClientAuthenticator;
 import org.janusgraph.diskstorage.es.rest.util.SSLConfigurationCallback;
@@ -43,7 +36,14 @@ import org.janusgraph.diskstorage.es.rest.util.SSLConfigurationCallback.Builder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_HOSTS;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_PORT;
 
 /**
  * Create an instance of Elasticsearch REST {@link org.elasticsearch.client.RestClient} from a JanusGraph
@@ -67,6 +67,7 @@ public class RestClientSetup {
             log.debug("Configured remote host: {} : {}", hostname, hostPort);
             hosts.add(new HttpHost(hostname, hostPort, httpScheme));
         }
+
         final RestClient rc = getRestClient(hosts.toArray(new HttpHost[hosts.size()]), config);
 
         final int scrollKeepAlive = config.get(ElasticSearchIndex.ES_SCROLL_KEEP_ALIVE);
@@ -121,7 +122,22 @@ public class RestClientSetup {
      * @return callback or null if the request customization is not needed
      */
     protected RequestConfigCallback getRequestConfigCallback(Configuration config) {
-        return null;
+
+        final List<RequestConfigCallback> callbackList = new LinkedList<>();
+
+        final Integer connectTimeout = config.get(ElasticSearchIndex.CONNECT_TIMEOUT);
+        final Integer socketTimeout = config.get(ElasticSearchIndex.SOCKET_TIMEOUT);
+
+        callbackList.add((requestConfigBuilder) ->
+            requestConfigBuilder.setConnectTimeout(connectTimeout).setSocketTimeout(socketTimeout));
+
+        // will execute the chain of individual callbacks
+        return requestConfigBuilder -> {
+            for(RequestConfigCallback cb: callbackList) {
+                cb.customizeRequestConfig(requestConfigBuilder);
+            }
+            return requestConfigBuilder;
+        };
     }
 
     /**
@@ -162,6 +178,10 @@ public class RestClientSetup {
         default:
             // not expected
             throw new IllegalArgumentException("Authentication type \"" + authType + "\" is not implemented");
+        }
+
+        if (config.has(ElasticSearchIndex.CLIENT_KEEP_ALIVE )) {
+            callbackList.add(new ConnectionKeepAliveConfigCallback(config.get(ElasticSearchIndex.CLIENT_KEEP_ALIVE)));
         }
 
         if (config.get(ElasticSearchIndex.SSL_ENABLED)) {
@@ -227,8 +247,8 @@ public class RestClientSetup {
 
         try {
             final Class<?> c = Class.forName(authClassName);
-            Preconditions.checkArgument(RestClientAuthenticator.class.isAssignableFrom(c), "Authenticator class "
-                    + authClassName + " must be a subclass of " + RestClientAuthenticator.class.getName());
+            Preconditions.checkArgument(RestClientAuthenticator.class.isAssignableFrom(c),
+                "Authenticator class %s must be a subclass of %s", authClassName, RestClientAuthenticator.class.getName());
             @SuppressWarnings("unchecked")
             final Constructor<RestClientAuthenticator> ctr = ((Class<RestClientAuthenticator>)c).getConstructor(String[].class);
             authenticator = ctr.newInstance((Object)authClassConstructorArgList);

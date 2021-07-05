@@ -14,26 +14,35 @@
 
 package org.janusgraph.diskstorage;
 
-import com.google.common.base.Function;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import org.apache.commons.configuration.BaseConfiguration;
+import org.apache.commons.lang3.StringUtils;
 import org.janusgraph.core.JanusGraphConfigurationException;
 import org.janusgraph.core.JanusGraphException;
 import org.janusgraph.core.schema.JanusGraphManagement;
-import org.janusgraph.diskstorage.configuration.*;
+import org.janusgraph.diskstorage.configuration.BasicConfiguration;
+import org.janusgraph.diskstorage.configuration.ConfigOption;
+import org.janusgraph.diskstorage.configuration.Configuration;
+import org.janusgraph.diskstorage.configuration.ModifiableConfiguration;
 import org.janusgraph.diskstorage.configuration.backend.CommonsConfiguration;
+import org.janusgraph.diskstorage.configuration.backend.KCVSConfiguration;
 import org.janusgraph.diskstorage.configuration.backend.builder.KCVSConfigurationBuilder;
 import org.janusgraph.diskstorage.idmanagement.ConsistentKeyIDAuthority;
-import org.janusgraph.diskstorage.indexing.*;
-import org.janusgraph.diskstorage.keycolumnvalue.*;
+import org.janusgraph.diskstorage.indexing.IndexFeatures;
+import org.janusgraph.diskstorage.indexing.IndexInformation;
+import org.janusgraph.diskstorage.indexing.IndexProvider;
+import org.janusgraph.diskstorage.indexing.IndexTransaction;
+import org.janusgraph.diskstorage.indexing.KeyInformation;
+import org.janusgraph.diskstorage.keycolumnvalue.KeyColumnValueStore;
+import org.janusgraph.diskstorage.keycolumnvalue.KeyColumnValueStoreManager;
+import org.janusgraph.diskstorage.keycolumnvalue.StoreFeatures;
+import org.janusgraph.diskstorage.keycolumnvalue.StoreManager;
+import org.janusgraph.diskstorage.keycolumnvalue.StoreTransaction;
 import org.janusgraph.diskstorage.keycolumnvalue.cache.CacheTransaction;
 import org.janusgraph.diskstorage.keycolumnvalue.cache.ExpirationKCVSCache;
 import org.janusgraph.diskstorage.keycolumnvalue.cache.KCVSCache;
 import org.janusgraph.diskstorage.keycolumnvalue.cache.NoKCVSCache;
-import org.janusgraph.diskstorage.keycolumnvalue.keyvalue.*;
+import org.janusgraph.diskstorage.keycolumnvalue.keyvalue.OrderedKeyValueStoreManager;
+import org.janusgraph.diskstorage.keycolumnvalue.keyvalue.OrderedKeyValueStoreManagerAdapter;
 import org.janusgraph.diskstorage.keycolumnvalue.scan.StandardScanner;
 import org.janusgraph.diskstorage.locking.Locker;
 import org.janusgraph.diskstorage.locking.LockerProvider;
@@ -44,26 +53,58 @@ import org.janusgraph.diskstorage.log.LogManager;
 import org.janusgraph.diskstorage.log.kcvs.KCVSLog;
 import org.janusgraph.diskstorage.log.kcvs.KCVSLogManager;
 import org.janusgraph.diskstorage.util.BackendOperation;
-import org.janusgraph.diskstorage.configuration.backend.KCVSConfiguration;
+import org.janusgraph.diskstorage.util.MetricInstrumentedIndexProvider;
 import org.janusgraph.diskstorage.util.MetricInstrumentedStoreManager;
 import org.janusgraph.diskstorage.util.StandardBaseTransactionConfig;
 import org.janusgraph.diskstorage.util.time.TimestampProvider;
 import org.janusgraph.graphdb.transaction.TransactionConfiguration;
 import org.janusgraph.util.system.ConfigurationUtil;
-
-import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.*;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.BASIC_METRICS;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.BUFFER_SIZE;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.DB_CACHE;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.DB_CACHE_CLEAN_WAIT;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.DB_CACHE_SIZE;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.DB_CACHE_TIME;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.IDS_STORE_NAME;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_BACKEND;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_NS;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.JOB_NS;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.JOB_START_TIME;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.LOCK_BACKEND;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.LOG_BACKEND;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.MANAGEMENT_LOG;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.METRICS_MERGE_STORES;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.PAGE_SIZE;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.PARALLEL_BACKEND_OPS;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_BACKEND;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_BATCH;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_DIRECTORY;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_HOSTS;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_READ_WAITTIME;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.STORAGE_WRITE_WAITTIME;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.SYSTEM_PROPERTIES_STORE_NAME;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.TIMESTAMP_PROVIDER;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.TRANSACTION_LOG;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.USER_CONFIGURATION_IDENTIFIER;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.USER_LOG;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.USER_LOG_PREFIX;
 
 /**
  * Orchestrates and configures all backend systems:
@@ -94,6 +135,7 @@ public class Backend implements LockerProvider, AutoCloseable {
     public static final String METRICS_MERGED_STORE = "stores";
     public static final String METRICS_MERGED_CACHE = "caches";
     public static final String METRICS_CACHE_SUFFIX = ".cache";
+    public static final String METRICS_INDEX_PROVIDER_NAME = "indexProvider";
     public static final String LOCK_STORE_SUFFIX = "_lock_";
 
     public static final String SYSTEM_TX_LOG_NAME = "txlog";
@@ -105,6 +147,40 @@ public class Backend implements LockerProvider, AutoCloseable {
     private static final long ETERNAL_CACHE_EXPIRATION = 1000L *3600*24*365*200; //200 years
 
     public static final int THREAD_POOL_SIZE_SCALE_FACTOR = 2;
+
+    //############ Registered Storage Managers ##############
+
+    private static final Map<StandardStoreManager, ConfigOption<?>> STORE_SHORTHAND_OPTIONS = Collections.unmodifiableMap(new HashMap<StandardStoreManager, ConfigOption<?>>() {{
+        put(StandardStoreManager.BDB_JE, STORAGE_DIRECTORY);
+        put(StandardStoreManager.CQL, STORAGE_HOSTS);
+        put(StandardStoreManager.HBASE, STORAGE_HOSTS);
+        //put(StandardStorageBackend.IN_MEMORY, null);
+    }});
+
+    public static final Map<String,String> REGISTERED_LOG_MANAGERS = new HashMap<String, String>() {{
+        put("default","org.janusgraph.diskstorage.log.kcvs.KCVSLogManager");
+    }};
+
+    private static final Function<String, Locker> TEST_LOCKER_CREATOR = lockerName -> openManagedLocker("org.janusgraph.diskstorage.util.TestLockerManager",lockerName);
+
+    private final Function<String, Locker> CONSISTENT_KEY_LOCKER_CREATOR = new Function<String, Locker>() {
+        @Override
+        public Locker apply(String lockerName) {
+            KeyColumnValueStore lockerStore;
+            try {
+                lockerStore = storeManager.openDatabase(lockerName);
+            } catch (BackendException e) {
+                throw new JanusGraphConfigurationException("Could not retrieve store named " + lockerName + " for locker configuration", e);
+            }
+            return new ConsistentKeyLocker.Builder(lockerStore, storeManager).fromConfig(configuration).build();
+        }
+    };
+
+    private final Map<String, Function<String, Locker>> REGISTERED_LOCKERS = Collections.unmodifiableMap(
+        new HashMap<String, Function<String, Locker>>(2){{
+            put("consistentkey", CONSISTENT_KEY_LOCKER_CREATOR);
+            put("test", TEST_LOCKER_CREATOR);
+        }});
 
     private final KeyColumnValueStoreManager storeManager;
     private final KeyColumnValueStoreManager storeManagerLocking;
@@ -187,7 +263,7 @@ public class Backend implements LockerProvider, AutoCloseable {
         } else {
             throw new JanusGraphConfigurationException("Unknown lock backend \"" +
                     lockBackendName + "\".  Known lock backends: " +
-                    Joiner.on(", ").join(REGISTERED_LOCKERS.keySet()) + ".");
+                    String.join(", ", REGISTERED_LOCKERS.keySet()) + ".");
         }
         // Never used for backends that have innate transaction support, but we
         // want to maintain the non-null invariant regardless; it will default
@@ -312,14 +388,8 @@ public class Backend implements LockerProvider, AutoCloseable {
      * @return
      */
     public Map<String, IndexInformation> getIndexInformation() {
-        ImmutableMap.Builder<String, IndexInformation> copy = ImmutableMap.builder();
-        copy.putAll(indexes);
-        return copy.build();
+        return Collections.unmodifiableMap(new HashMap<>(indexes));
     }
-//
-//    public IndexProvider getIndexProvider(String name) {
-//        return indexes.get(name);
-//    }
 
     public KCVSLog getSystemTxLog() {
         try {
@@ -394,12 +464,12 @@ public class Backend implements LockerProvider, AutoCloseable {
     }
 
     private static LogManager getLogManager(Configuration config, String logName, KeyColumnValueStoreManager sm) {
+        assert config!=null;
         Configuration logConfig = config.restrictTo(logName);
         String backend = logConfig.get(LOG_BACKEND);
         if (backend.equalsIgnoreCase(LOG_BACKEND.getDefaultValue())) {
             return new KCVSLogManager(sm,logConfig);
         } else {
-            Preconditions.checkArgument(config!=null);
             LogManager lm = getImplementationClass(logConfig,logConfig.get(LOG_BACKEND),REGISTERED_LOG_MANAGERS);
             Preconditions.checkNotNull(lm);
             return lm;
@@ -411,25 +481,32 @@ public class Backend implements LockerProvider, AutoCloseable {
         StoreManager manager = getImplementationClass(storageConfig, storageConfig.get(STORAGE_BACKEND),
                 StandardStoreManager.getAllManagerClasses());
         if (manager instanceof OrderedKeyValueStoreManager) {
-            manager = new OrderedKeyValueStoreManagerAdapter((OrderedKeyValueStoreManager) manager,
-                ImmutableMap.of(EDGESTORE_NAME, 8, EDGESTORE_NAME + LOCK_STORE_SUFFIX, 8,
-                    storageConfig.get(IDS_STORE_NAME), 8));
+            Map<String, Integer> keyLength = new HashMap<>(3);
+            keyLength.put(EDGESTORE_NAME, 8);
+            keyLength.put(EDGESTORE_NAME + LOCK_STORE_SUFFIX, 8);
+            keyLength.put(storageConfig.get(IDS_STORE_NAME), 8);
+            keyLength = Collections.unmodifiableMap(keyLength);
+            manager = new OrderedKeyValueStoreManagerAdapter((OrderedKeyValueStoreManager) manager, keyLength);
         }
         Preconditions.checkArgument(manager instanceof KeyColumnValueStoreManager,"Invalid storage manager: %s",manager.getClass());
         return (KeyColumnValueStoreManager) manager;
     }
 
     private static Map<String, IndexProvider> getIndexes(Configuration config) {
-        ImmutableMap.Builder<String, IndexProvider> builder = ImmutableMap.builder();
-        for (String index : config.getContainedNamespaces(INDEX_NS)) {
+        Set<String> containedIndexNamespaces = config.getContainedNamespaces(INDEX_NS);
+        Map<String, IndexProvider> indexesMap = new HashMap<>(containedIndexNamespaces.size());
+        for (String index : containedIndexNamespaces) {
             Preconditions.checkArgument(StringUtils.isNotBlank(index), "Invalid index name [%s]", index);
             log.info("Configuring index [{}]", index);
             IndexProvider provider = getImplementationClass(config.restrictTo(index), config.get(INDEX_BACKEND,index),
                     StandardIndexProvider.getAllProviderClasses());
             Preconditions.checkNotNull(provider);
-            builder.put(index, provider);
+            if (config.get(BASIC_METRICS)) {
+                provider = new MetricInstrumentedIndexProvider(provider, METRICS_INDEX_PROVIDER_NAME + "." + index);
+            }
+            indexesMap.put(index, provider);
         }
-        return builder.build();
+        return Collections.unmodifiableMap(indexesMap);
     }
 
     public static <T> T getImplementationClass(Configuration config, String className, Map<String, String> registeredImplementations) {
@@ -471,13 +548,7 @@ public class Backend implements LockerProvider, AutoCloseable {
      * Returns the {@link IndexFeatures} of all configured index backends
      */
     public Map<String,IndexFeatures> getIndexFeatures() {
-        return Maps.transformValues(indexes,new Function<IndexProvider, IndexFeatures>() {
-            @Nullable
-            @Override
-            public IndexFeatures apply(@Nullable IndexProvider indexProvider) {
-                return indexProvider.getFeatures();
-            }
-        });
+        return indexes.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getFeatures()));
     }
 
     /**
@@ -561,26 +632,9 @@ public class Backend implements LockerProvider, AutoCloseable {
     }
 
     private ModifiableConfiguration buildJobConfiguration() {
-
         return new ModifiableConfiguration(JOB_NS,
-            new CommonsConfiguration(new BaseConfiguration()),
+            new CommonsConfiguration(ConfigurationUtil.createBaseConfiguration()),
             BasicConfiguration.Restriction.NONE);
-    }
-
-    //############ Registered Storage Managers ##############
-
-    private static final ImmutableMap<StandardStoreManager, ConfigOption<?>> STORE_SHORTHAND_OPTIONS;
-
-    static {
-        final Map<StandardStoreManager, ConfigOption<?>> m = new HashMap<>();
-
-        m.put(StandardStoreManager.BDB_JE, STORAGE_DIRECTORY);
-        m.put(StandardStoreManager.CQL, STORAGE_HOSTS);
-        m.put(StandardStoreManager.HBASE, STORAGE_HOSTS);
-        //m.put(StandardStorageBackend.IN_MEMORY, null);
-
-        //STORE_SHORTHAND_OPTIONS = Maps.immutableEnumMap(m);
-        STORE_SHORTHAND_OPTIONS = ImmutableMap.copyOf(m);
     }
 
     public static ConfigOption<?> getOptionForShorthand(String shorthand) {
@@ -596,30 +650,6 @@ public class Backend implements LockerProvider, AutoCloseable {
 
         return null;
     }
-
-    public static final Map<String,String> REGISTERED_LOG_MANAGERS = new HashMap<String, String>() {{
-        put("default","org.janusgraph.diskstorage.log.kcvs.KCVSLogManager");
-    }};
-
-    private final Function<String, Locker> CONSISTENT_KEY_LOCKER_CREATOR = new Function<String, Locker>() {
-        @Override
-        public Locker apply(String lockerName) {
-            KeyColumnValueStore lockerStore;
-            try {
-                lockerStore = storeManager.openDatabase(lockerName);
-            } catch (BackendException e) {
-                throw new JanusGraphConfigurationException("Could not retrieve store named " + lockerName + " for locker configuration", e);
-            }
-            return new ConsistentKeyLocker.Builder(lockerStore, storeManager).fromConfig(configuration).build();
-        }
-    };
-
-    private static final Function<String, Locker> TEST_LOCKER_CREATOR = lockerName -> openManagedLocker("org.janusgraph.diskstorage.util.TestLockerManager",lockerName);
-
-    private final Map<String, Function<String, Locker>> REGISTERED_LOCKERS = ImmutableMap.of(
-            "consistentkey", CONSISTENT_KEY_LOCKER_CREATOR,
-            "test", TEST_LOCKER_CREATOR
-    );
 
     private static Locker openManagedLocker(String classname, String lockerName) {
         try {

@@ -14,12 +14,19 @@
 
 package org.janusgraph.graphdb.olap.job;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import org.janusgraph.core.*;
-import org.janusgraph.core.schema.*;
+import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.janusgraph.core.BaseVertexQuery;
+import org.janusgraph.core.JanusGraphElement;
+import org.janusgraph.core.JanusGraphException;
+import org.janusgraph.core.JanusGraphVertex;
+import org.janusgraph.core.PropertyKey;
+import org.janusgraph.core.RelationType;
+import org.janusgraph.core.schema.JanusGraphIndex;
+import org.janusgraph.core.schema.JanusGraphSchemaType;
+import org.janusgraph.core.schema.RelationTypeIndex;
+import org.janusgraph.core.schema.SchemaAction;
+import org.janusgraph.core.schema.SchemaStatus;
 import org.janusgraph.diskstorage.BackendException;
 import org.janusgraph.diskstorage.BackendTransaction;
 import org.janusgraph.diskstorage.Entry;
@@ -32,6 +39,7 @@ import org.janusgraph.graphdb.database.IndexSerializer;
 import org.janusgraph.graphdb.database.management.RelationTypeIndexWrapper;
 import org.janusgraph.graphdb.internal.InternalRelation;
 import org.janusgraph.graphdb.internal.InternalRelationType;
+import org.janusgraph.graphdb.internal.InternalVertex;
 import org.janusgraph.graphdb.olap.QueryContainer;
 import org.janusgraph.graphdb.olap.VertexScanJob;
 import org.janusgraph.graphdb.relations.EdgeDirection;
@@ -40,9 +48,14 @@ import org.janusgraph.graphdb.types.IndexType;
 import org.janusgraph.graphdb.types.MixedIndexType;
 import org.janusgraph.graphdb.types.system.BaseLabel;
 import org.janusgraph.graphdb.types.vertices.JanusGraphSchemaVertex;
-import org.apache.tinkerpop.gremlin.structure.Direction;
+import org.janusgraph.util.StringUtils;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -106,7 +119,7 @@ public class IndexRepairJob extends IndexUpdateJob implements VertexScanJob {
             }
             invalidIndexHint = String.format(
                     "The following index keys have invalid status: %s (status must be one of %s)",
-                    Joiner.on(",").withKeyValueSeparator(" has status ").join(invalidKeyStatuses), acceptableStatuses);
+                StringUtils.join(invalidKeyStatuses, " has status ", ","), acceptableStatuses);
             if (isValidIndex && acceptableFields==0) {
                 isValidIndex = false;
                 invalidIndexHint = "The index does not contain any valid keys";
@@ -114,7 +127,9 @@ public class IndexRepairJob extends IndexUpdateJob implements VertexScanJob {
         }
         Preconditions.checkArgument(isValidIndex, "The index %s is in an invalid state and cannot be indexed. %s", indexName, invalidIndexHint);
         // TODO consider retrieving the current Job object and calling killJob() if !isValidIndex -- would be more efficient than throwing an exception on the first pair processed by each mapper
-        log.debug("Index {} is valid for re-indexing");
+        if(log.isDebugEnabled()){
+            log.debug("Index "+index.name()+" is valid for re-indexing");
+        }
     }
 
 
@@ -126,20 +141,41 @@ public class IndexRepairJob extends IndexUpdateJob implements VertexScanJob {
                 RelationTypeIndexWrapper wrapper = (RelationTypeIndexWrapper)index;
                 InternalRelationType wrappedType = wrapper.getWrappedType();
                 EdgeSerializer edgeSerializer = writeTx.getEdgeSerializer();
-                List<Entry> additions = new ArrayList<>();
+                List<Entry> outAdditions = new ArrayList<>();
+                Map<StaticBuffer,List<Entry>> inAdditionsMap = new HashMap<>();
 
                 for (Object relation : vertex.query().types(indexRelationTypeName).direction(Direction.OUT).relations()) {
                     InternalRelation janusgraphRelation = (InternalRelation) relation;
                     for (int pos = 0; pos < janusgraphRelation.getArity(); pos++) {
                         if (!wrappedType.isUnidirected(Direction.BOTH) && !wrappedType.isUnidirected(EdgeDirection.fromPosition(pos)))
                             continue; //Directionality is not covered
+
                         Entry entry = edgeSerializer.writeRelation(janusgraphRelation, wrappedType, pos, writeTx);
-                        additions.add(entry);
+
+                        if (pos == 0) {
+                            outAdditions.add(entry);
+                        } else {
+                            assert pos == 1;
+                            InternalVertex otherVertex = janusgraphRelation.getVertex(1);
+                            StaticBuffer otherVertexKey = writeTx.getIdInspector().getKey(otherVertex.longId());
+                            inAdditionsMap.computeIfAbsent(otherVertexKey, k -> new ArrayList<>()).add(entry);
+                        }
                     }
                 }
+
+                //Mutating all OUT relationships for the current vertex
                 StaticBuffer vertexKey = writeTx.getIdInspector().getKey(vertex.longId());
-                mutator.mutateEdges(vertexKey, additions, KCVSCache.NO_DELETIONS);
-                metrics.incrementCustom(ADDED_RECORDS_COUNT, additions.size());
+                mutator.mutateEdges(vertexKey, outAdditions, KCVSCache.NO_DELETIONS);
+
+                //Mutating all IN relationships for the current vertex
+                int totalInAdditions = 0;
+                for(Map.Entry<StaticBuffer, List<Entry>> entry : inAdditionsMap.entrySet()) {
+                    StaticBuffer otherVertexKey = entry.getKey();
+                    List<Entry> inAdditions = entry.getValue();
+                    totalInAdditions += inAdditions.size();
+                    mutator.mutateEdges(otherVertexKey, inAdditions, KCVSCache.NO_DELETIONS);
+                }
+                metrics.incrementCustom(ADDED_RECORDS_COUNT, outAdditions.size()+totalInAdditions);
             } else if (index instanceof JanusGraphIndex) {
                 IndexType indexType = managementSystem.getSchemaVertex(index).asIndexType();
                 assert indexType!=null;
@@ -148,19 +184,15 @@ public class IndexRepairJob extends IndexUpdateJob implements VertexScanJob {
                 List<JanusGraphElement> elements;
                 switch (indexType.getElement()) {
                     case VERTEX:
-                        elements = ImmutableList.of(vertex);
+                        elements = Collections.singletonList(vertex);
                         break;
                     case PROPERTY:
-                        elements = Lists.newArrayList();
-                        for (JanusGraphVertexProperty p : addIndexSchemaConstraint(vertex.query(),indexType).properties()) {
-                            elements.add(p);
-                        }
+                        elements = new ArrayList<>();
+                        addIndexSchemaConstraint(vertex.query(),indexType).properties().forEach(elements::add);
                         break;
                     case EDGE:
-                        elements = Lists.newArrayList();
-                        for (Object e : addIndexSchemaConstraint(vertex.query().direction(Direction.OUT),indexType).edges()) {
-                            elements.add((JanusGraphEdge) e);
-                        }
+                        elements = new ArrayList<>();
+                        addIndexSchemaConstraint(vertex.query().direction(Direction.OUT),indexType).edges().forEach(elements::add);
                         break;
                     default: throw new AssertionError("Unexpected category: " + indexType.getElement());
                 }
@@ -170,7 +202,7 @@ public class IndexRepairJob extends IndexUpdateJob implements VertexScanJob {
                                 indexSerializer.reindexElement(element, (CompositeIndexType) indexType);
                         for (IndexSerializer.IndexUpdate<StaticBuffer,Entry> update : updates) {
                             log.debug("Mutating index {}: {}", indexType, update.getEntry());
-                            mutator.mutateIndex(update.getKey(), Lists.newArrayList(update.getEntry()), KCVSCache.NO_DELETIONS);
+                            mutator.mutateIndex(update.getKey(), new ArrayList<Entry>(1){{add(update.getEntry());}}, KCVSCache.NO_DELETIONS);
                             metrics.incrementCustom(ADDED_RECORDS_COUNT);
                         }
                     }

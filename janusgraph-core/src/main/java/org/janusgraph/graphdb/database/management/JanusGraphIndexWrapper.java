@@ -15,17 +15,18 @@
 package org.janusgraph.graphdb.database.management;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
+import org.apache.tinkerpop.gremlin.structure.Element;
 import org.janusgraph.core.Cardinality;
-import org.janusgraph.core.schema.Parameter;
 import org.janusgraph.core.PropertyKey;
-import org.janusgraph.core.schema.SchemaStatus;
 import org.janusgraph.core.schema.JanusGraphIndex;
+import org.janusgraph.core.schema.Parameter;
+import org.janusgraph.core.schema.SchemaStatus;
 import org.janusgraph.graphdb.types.CompositeIndexType;
-import org.janusgraph.graphdb.types.MixedIndexType;
 import org.janusgraph.graphdb.types.IndexField;
 import org.janusgraph.graphdb.types.IndexType;
-import org.apache.tinkerpop.gremlin.structure.Element;
+import org.janusgraph.graphdb.types.MixedIndexType;
+
+import java.util.Objects;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -80,7 +81,7 @@ public class JanusGraphIndexWrapper implements JanusGraphIndex {
 
     @Override
     public SchemaStatus getIndexStatus(PropertyKey key) {
-        Preconditions.checkArgument(Sets.newHashSet(getFieldKeys()).contains(key),"Provided key is not part of this index: %s",key);
+        Preconditions.checkArgument(containsPropertyKey(key),"Provided key is not part of this index: %s",key);
         if (index.isCompositeIndex()) return ((CompositeIndexType)index).getStatus();
         else return ((MixedIndexType)index).getField(key).getStatus();
     }
@@ -100,5 +101,13 @@ public class JanusGraphIndexWrapper implements JanusGraphIndex {
         return name();
     }
 
+    private boolean containsPropertyKey(PropertyKey propertyKey){
+        for (IndexField field : index.getFieldKeys()) {
+            if (Objects.equals(field.getFieldKey(), propertyKey)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 

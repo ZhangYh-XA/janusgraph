@@ -14,7 +14,8 @@
 
 package org.janusgraph.graphdb.olap.computer;
 
-import com.google.common.collect.ImmutableMap;
+import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
+import org.apache.tinkerpop.gremlin.process.computer.MapReduce;
 import org.janusgraph.core.JanusGraph;
 import org.janusgraph.core.JanusGraphVertex;
 import org.janusgraph.diskstorage.EntryList;
@@ -28,12 +29,11 @@ import org.janusgraph.graphdb.olap.VertexJobConverter;
 import org.janusgraph.graphdb.olap.VertexScanJob;
 import org.janusgraph.graphdb.vertices.PreloadedVertex;
 import org.janusgraph.util.datastructures.Retriever;
-import org.apache.tinkerpop.gremlin.process.computer.GraphComputer;
-import org.apache.tinkerpop.gremlin.process.computer.MapReduce;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -82,11 +82,11 @@ public class VertexMapJob implements VertexScanJob {
 
     @Override
     public VertexMapJob clone() {
-        ImmutableMap.Builder<MapReduce, FulgoraMapEmitter> cloneMap = ImmutableMap.builder();
+        Map<MapReduce, FulgoraMapEmitter> cloneMap = new HashMap<>(mapJobs.size());
         for (Map.Entry<MapReduce, FulgoraMapEmitter> entry : mapJobs.entrySet()) {
             cloneMap.put(entry.getKey().clone(), entry.getValue());
         }
-        return new VertexMapJob(idManager, vertexMemory, cloneMap.build());
+        return new VertexMapJob(idManager, vertexMemory, cloneMap);
     }
 
     @Override

@@ -14,24 +14,24 @@
 
 package org.janusgraph.diskstorage.locking.consistentkey;
 
-import java.time.Instant;
-import java.util.List;
-
 import org.janusgraph.diskstorage.BackendException;
-import org.janusgraph.diskstorage.util.time.TimestampProvider;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.ImmutableList;
 import org.janusgraph.diskstorage.Entry;
 import org.janusgraph.diskstorage.StaticBuffer;
 import org.janusgraph.diskstorage.keycolumnvalue.KeyColumnValueStore;
 import org.janusgraph.diskstorage.keycolumnvalue.KeySliceQuery;
 import org.janusgraph.diskstorage.keycolumnvalue.StoreTransaction;
 import org.janusgraph.diskstorage.util.KeyColumn;
+import org.janusgraph.diskstorage.util.time.TimestampProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import static org.janusgraph.diskstorage.locking.consistentkey.ConsistentKeyLocker.LOCK_COL_START;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+
 import static org.janusgraph.diskstorage.locking.consistentkey.ConsistentKeyLocker.LOCK_COL_END;
+import static org.janusgraph.diskstorage.locking.consistentkey.ConsistentKeyLocker.LOCK_COL_START;
 
 /**
  * Attempt to delete locks before a configurable timestamp cutoff using the
@@ -74,24 +74,24 @@ public class StandardLockCleanerRunnable implements Runnable {
         StaticBuffer lockKey = serializer.toLockKey(target.getKey(), target.getColumn());
         List<Entry> locks = store.getSlice(new KeySliceQuery(lockKey, LOCK_COL_START, LOCK_COL_END), tx); // TODO reduce LOCK_COL_END based on cutoff
 
-        ImmutableList.Builder<StaticBuffer> b = ImmutableList.builder();
+        List<StaticBuffer> deletions = new LinkedList<>();
 
         for (Entry lc : locks) {
             TimestampRid tr = serializer.fromLockColumn(lc.getColumn(), times);
             if (tr.getTimestamp().isBefore(cutoff)) {
                 log.info("Deleting expired lock on {} by rid {} with timestamp {} (before or at cutoff {})",
                     target, tr.getRid(), tr.getTimestamp(), cutoff);
-                b.add(lc.getColumn());
+                deletions.add(lc.getColumn());
             } else {
                 log.debug("Ignoring lock on {} by rid {} with timestamp {} (timestamp is after cutoff {})",
                     target, tr.getRid(), tr.getTimestamp(), cutoff);
             }
         }
 
-        List<StaticBuffer> deletions = b.build();
+        deletions = Collections.unmodifiableList(deletions);
 
         if (!deletions.isEmpty()) {
-            store.mutate(lockKey, ImmutableList.of(), deletions, tx);
+            store.mutate(lockKey, Collections.emptyList(), deletions, tx);
             log.info("Deleted {} expired locks (before or at cutoff {})", deletions.size(), cutoff);
         }
     }

@@ -15,17 +15,25 @@
 package org.janusgraph.graphdb.query.vertex;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
-import org.janusgraph.core.*;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.janusgraph.core.JanusGraphEdge;
+import org.janusgraph.core.JanusGraphMultiVertexQuery;
+import org.janusgraph.core.JanusGraphRelation;
+import org.janusgraph.core.JanusGraphVertex;
+import org.janusgraph.core.JanusGraphVertexProperty;
+import org.janusgraph.core.VertexList;
 import org.janusgraph.diskstorage.keycolumnvalue.SliceQuery;
 import org.janusgraph.graphdb.internal.InternalVertex;
 import org.janusgraph.graphdb.internal.RelationCategory;
 import org.janusgraph.graphdb.query.BackendQueryHolder;
 import org.janusgraph.graphdb.query.profile.QueryProfiler;
 import org.janusgraph.graphdb.transaction.StandardJanusGraphTx;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Implementation of {@link JanusGraphMultiVertexQuery} that extends {@link BasicVertexCentricQueryBuilder}
@@ -45,7 +53,7 @@ public class MultiVertexCentricQueryBuilder extends BasicVertexCentricQueryBuild
 
     public MultiVertexCentricQueryBuilder(final StandardJanusGraphTx tx) {
         super(tx);
-        vertices = Sets.newHashSet();
+        vertices = new HashSet<>();
     }
 
     @Override
@@ -100,7 +108,7 @@ public class MultiVertexCentricQueryBuilder extends BasicVertexCentricQueryBuild
         profiler.setAnnotation(QueryProfiler.NUMVERTICES_ANNOTATION,vertices.size());
         if (!bq.isEmpty()) {
             for (BackendQueryHolder<SliceQuery> sq : bq.getQueries()) {
-                Set<InternalVertex> adjVertices = Sets.newHashSet(vertices);
+                Set<InternalVertex> adjVertices = new HashSet<>(vertices);
                 for (InternalVertex v : vertices) {
                     if (isPartitionedVertex(v)) {
                         profiler.setAnnotation(QueryProfiler.PARTITIONED_VERTEX_ANNOTATION,true);

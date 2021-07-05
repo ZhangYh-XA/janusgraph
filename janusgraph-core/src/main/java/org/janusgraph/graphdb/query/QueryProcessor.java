@@ -15,15 +15,18 @@
 package org.janusgraph.graphdb.query;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import org.janusgraph.core.QueryException;
+import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.janusgraph.core.JanusGraphElement;
+import org.janusgraph.core.QueryException;
 import org.janusgraph.graphdb.query.profile.QueryProfiler;
+import org.janusgraph.graphdb.util.CloseableIteratorUtils;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Executes a given {@link ElementQuery} against a provided {@link QueryExecutor} to produce the result set of elements.
@@ -47,7 +50,6 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
 
     private static final int MAX_SORT_ITERATION = 1000000;
 
-
     private final Q query;
     private final QueryExecutor<Q, R, B> executor;
 
@@ -59,9 +61,9 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
     }
 
     @Override
-    public Iterator<R> iterator() {
+    public CloseableIterator<R> iterator() {
         if (query.isEmpty())
-            return Collections.emptyIterator();
+            return CloseableIteratorUtils.emptyIterator();
 
         return new ResultSetIterator(getUnfoldedIterator(),(query.hasLimit()) ? query.getLimit() : Query.NO_LIMIT);
     }
@@ -73,7 +75,7 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
         if (query.isSorted()) {
             for (int i = query.numSubQueries() - 1; i >= 0; i--) {
                 BackendQueryHolder<B> subquery = query.getSubQuery(i);
-                Iterator<R> subqueryIterator = getFilterIterator((subquery.isSorted())
+                CloseableIterator<R> subqueryIterator = getFilterIterator((subquery.isSorted())
                                                             ? new LimitAdjustingIterator(subquery)
                                                             : new PreSortingIterator(subquery),
                                                          hasDeletions,
@@ -87,33 +89,36 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
             Preconditions.checkArgument(iterator != null);
 
             if (newElements.hasNext()) {
-                final List<R> allNew = Lists.newArrayList(newElements);
+                final List<R> allNew = new ArrayList<>();
+                newElements.forEachRemaining(allNew::add);
                 allNew.sort(query.getSortOrder());
-                iterator = new ResultMergeSortIterator<>(allNew.iterator(), iterator, query.getSortOrder(), query.hasDuplicateResults());
+                iterator = new ResultMergeSortIterator<>(allNew.iterator(), iterator,
+                    query.getSortOrder(), query.hasDuplicateResults());
             }
         } else {
             final Set<R> allNew;
             if (newElements.hasNext()) {
-                allNew = Sets.newHashSet(newElements);
+                allNew = new HashSet<>();
+                newElements.forEachRemaining(allNew::add);
             } else {
-                allNew = ImmutableSet.of();
+                allNew = Collections.emptySet();
             }
 
             final List<Iterator<R>> iterators = new ArrayList<>(query.numSubQueries());
             for (int i = 0; i < query.numSubQueries(); i++) {
                 final BackendQueryHolder<B> subquery = query.getSubQuery(i);
-                Iterator<R> subIterator = new LimitAdjustingIterator(subquery);
+                CloseableIterator<R> subIterator = new LimitAdjustingIterator(subquery);
                 subIterator = getFilterIterator(subIterator, hasDeletions, !subquery.isFitted());
                 if (!allNew.isEmpty()) {
-                    subIterator = Iterators.filter(subIterator, r -> !allNew.contains(r));
+                    subIterator = CloseableIteratorUtils.filter(subIterator, r -> !allNew.contains(r));
                 }
                 iterators.add(subIterator);
             }
             if (iterators.size() > 1) {
-                iterator = Iterators.concat(iterators.iterator());
+                iterator = CloseableIteratorUtils.concat(iterators);
                 if (query.hasDuplicateResults()) { //Cache results and filter out duplicates
                     final Set<R> seenResults = new HashSet<>();
-                    iterator = Iterators.filter(iterator, r -> {
+                    iterator = CloseableIteratorUtils.filter(iterator, r -> {
                         if (seenResults.contains(r)) return false;
                         else {
                             seenResults.add(r);
@@ -123,27 +128,29 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
                 }
             } else iterator = iterators.get(0);
 
-            if (!allNew.isEmpty()) iterator = Iterators.concat(allNew.iterator(), iterator);
+            if (!allNew.isEmpty()) iterator = CloseableIteratorUtils.concat(allNew.iterator(), iterator);
         }
         return iterator;
     }
 
-    private Iterator<R> getFilterIterator(final Iterator<R> iterator, final boolean filterDeletions, final boolean filterMatches) {
+    private CloseableIterator<R> getFilterIterator(final CloseableIterator<R> iterator, final boolean filterDeletions, final boolean filterMatches) {
         if (filterDeletions || filterMatches) {
-            return Iterators.filter(iterator, r -> (!filterDeletions || !executor.isDeleted(query, r)) && (!filterMatches || query.matches(r)));
+            return CloseableIteratorUtils.filter(iterator, r -> (!filterDeletions || !executor.isDeleted(query, r)) && (!filterMatches || query.matches(r)));
         } else {
             return iterator;
         }
     }
 
-    private final class PreSortingIterator implements Iterator<R> {
+    private final class PreSortingIterator implements CloseableIterator<R> {
 
         private final Iterator<R> iterator;
 
         private PreSortingIterator(BackendQueryHolder<B> backendQueryHolder) {
-            List<R> all = Lists.newArrayList(executor.execute(query,
-                    backendQueryHolder.getBackendQuery().updateLimit(MAX_SORT_ITERATION),
-                    backendQueryHolder.getExecutionInfo(),backendQueryHolder.getProfiler()));
+            List<R> all = new ArrayList<>();
+            executor.execute(query,
+                backendQueryHolder.getBackendQuery().updateLimit(MAX_SORT_ITERATION),
+                backendQueryHolder.getExecutionInfo(),backendQueryHolder.getProfiler())
+                .forEachRemaining(all::add);
             if (all.size() >= MAX_SORT_ITERATION)
                 throw new QueryException("Could not execute query since pre-sorting requires fetching more than " +
                         MAX_SORT_ITERATION + " elements. Consider rewriting the query to exploit sort orders");
@@ -164,6 +171,11 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
         @Override
         public void remove() {
             throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void close() {
+            CloseableIterator.closeIterator(iterator);
         }
     }
 
@@ -189,7 +201,7 @@ public class QueryProcessor<Q extends ElementQuery<R, B>, R extends JanusGraphEl
 
         @Override
         public Iterator<R> getNewIterator(int newLimit) {
-            if (!backendQuery.hasLimit() || newLimit>backendQuery.getLimit())
+            if (newLimit>backendQuery.getLimit())
                 backendQuery = backendQuery.updateLimit(newLimit);
             return executor.execute(query, backendQuery, executionInfo, profiler);
         }

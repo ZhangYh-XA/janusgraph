@@ -16,8 +16,8 @@ package org.janusgraph.graphdb.relations;
 
 import com.carrotsearch.hppc.cursors.LongObjectCursor;
 import com.google.common.collect.Iterables;
-import org.janusgraph.core.schema.ConsistencyModifier;
 import org.janusgraph.core.PropertyKey;
+import org.janusgraph.core.schema.ConsistencyModifier;
 import org.janusgraph.diskstorage.Entry;
 import org.janusgraph.graphdb.internal.ElementLifeCycle;
 import org.janusgraph.graphdb.internal.InternalRelation;
@@ -71,8 +71,8 @@ public class CacheVertexProperty extends AbstractVertexProperty {
         copyProperties(copy);
         copy.remove();
 
-        StandardVertexProperty u = (StandardVertexProperty) tx().addProperty(getVertex(0), propertyKey(), value());
-        if (type.getConsistencyModifier()!= ConsistencyModifier.FORK) u.setId(longId());
+        Long id = type.getConsistencyModifier() != ConsistencyModifier.FORK ? longId() : null;
+        StandardVertexProperty u = (StandardVertexProperty) tx().addProperty(getVertex(0), propertyKey(), value(), id);
         u.setPreviousID(longId());
         copyProperties(u);
         return u;
@@ -121,7 +121,7 @@ public class CacheVertexProperty extends AbstractVertexProperty {
 
     @Override
     public void remove() {
-        if (!tx().isRemovedRelation(longId())) {
+        if (!isRemoved()) {
             tx().removeRelation(this);
         }// else throw InvalidElementException.removedException(this);
     }

@@ -14,6 +14,7 @@
 
 package org.janusgraph.graphdb.query.graph;
 
+import com.google.common.base.Preconditions;
 import org.janusgraph.diskstorage.indexing.IndexQuery;
 import org.janusgraph.graphdb.query.BackendQuery;
 import org.janusgraph.graphdb.query.BaseQuery;
@@ -22,9 +23,6 @@ import org.janusgraph.graphdb.query.profile.QueryProfiler;
 import org.janusgraph.graphdb.types.CompositeIndexType;
 import org.janusgraph.graphdb.types.IndexType;
 import org.janusgraph.graphdb.types.MixedIndexType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +43,8 @@ import java.util.Objects;
 public class JointIndexQuery extends BaseQuery implements BackendQuery<JointIndexQuery>, ProfileObservable {
 
     private final List<Subquery> queries;
+
+    private QueryProfiler profiler = QueryProfiler.NO_OP;
 
     private JointIndexQuery(List<Subquery> queries) {
         this.queries = Preconditions.checkNotNull(queries);
@@ -75,8 +75,15 @@ public class JointIndexQuery extends BaseQuery implements BackendQuery<JointInde
     }
 
     @Override
-    public void observeWith(QueryProfiler profiler) {
-        queries.forEach(q -> q.observeWith(profiler));
+    public void observeWith(QueryProfiler profiler, boolean hasSiblings) {
+        this.profiler = profiler;
+        boolean consistsOfMultipleQueries = queries.size() > 1;
+        queries.forEach(q -> q.observeWith(profiler, consistsOfMultipleQueries));
+    }
+
+    @Override
+    public QueryProfiler getProfiler() {
+        return profiler;
     }
 
     @Override
@@ -100,9 +107,15 @@ public class JointIndexQuery extends BaseQuery implements BackendQuery<JointInde
 
     @Override
     public JointIndexQuery updateLimit(int newLimit) {
-        List<Subquery> subqueries = (queries.size() == 1) ? Lists.newArrayList(queries.get(0).updateLimit(newLimit)) :
-            Lists.newArrayList(queries);
+        List<Subquery> subqueries;
+        if(queries.size() == 1){
+            subqueries = new ArrayList<>(1);
+            subqueries.add(queries.get(0).updateLimit(newLimit));
+        } else {
+            subqueries = new ArrayList<>(queries);
+        }
         JointIndexQuery jointIndexQuery = new JointIndexQuery(subqueries);
+        jointIndexQuery.observeWith(this.profiler, false);
         jointIndexQuery.setLimit(newLimit);
         return jointIndexQuery;
     }
@@ -119,8 +132,8 @@ public class JointIndexQuery extends BaseQuery implements BackendQuery<JointInde
             this.query = query;
         }
 
-        public void observeWith(QueryProfiler prof) {
-            this.profiler = prof.addNested(QueryProfiler.AND_QUERY);
+        public void observeWith(QueryProfiler prof, boolean hasSiblings) {
+            profiler = prof.addNested(QueryProfiler.AND_QUERY, hasSiblings);
             profiler.setAnnotation(QueryProfiler.QUERY_ANNOTATION,query);
             profiler.setAnnotation(QueryProfiler.INDEX_ANNOTATION,index.getName());
             if (index.isMixedIndex()) profiler.setAnnotation(QueryProfiler.INDEX_ANNOTATION+"_impl",index.getBackingIndexName());
@@ -160,7 +173,7 @@ public class JointIndexQuery extends BaseQuery implements BackendQuery<JointInde
 
         @Override
         public String toString() {
-            return index.toString()+":"+query.toString();
+            return index +":"+ query;
         }
 
         @Override

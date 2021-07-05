@@ -14,13 +14,13 @@
 
 package org.janusgraph.diskstorage.util.time;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeUnit;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Implementations of {@link TimestampProvider} for different resolutions of time:
@@ -70,7 +70,7 @@ public enum TimestampProviders implements TimestampProvider {
     MICRO {
         @Override
         public Instant getTime() {
-            return Instant.now();
+            return Instant.now().truncatedTo(getUnit());
         }
 
         @Override
@@ -93,7 +93,7 @@ public enum TimestampProviders implements TimestampProvider {
     MILLI {
         @Override
         public Instant getTime() {
-            return Instant.now();
+            return Instant.now().truncatedTo(getUnit());
         }
 
         @Override

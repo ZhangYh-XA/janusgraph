@@ -14,47 +14,16 @@
 
 package org.janusgraph.diskstorage.solr;
 
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_MAX_RESULT_SET_SIZE;
-import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_NS;
-
-import java.io.IOException;
-import java.io.StringReader;
-import java.io.UncheckedIOException;
-import java.lang.reflect.Constructor;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.time.Instant;
-import java.util.AbstractMap.SimpleEntry;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.TimeZone;
-import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
-
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpEntityEnclosingRequest;
-import org.apache.http.HttpException;
-import org.apache.http.HttpRequest;
 import org.apache.http.HttpRequestInterceptor;
 import org.apache.http.client.HttpClient;
 import org.apache.http.entity.BufferedHttpEntity;
 import org.apache.http.impl.auth.KerberosScheme;
-import org.apache.http.protocol.HttpContext;
 import org.apache.lucene.analysis.CachingTokenFilter;
 import org.apache.lucene.analysis.Tokenizer;
 import org.apache.lucene.analysis.tokenattributes.TermToBytesRefAttribute;
@@ -122,8 +91,36 @@ import org.janusgraph.graphdb.types.ParameterType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
+import java.io.IOException;
+import java.io.StringReader;
+import java.io.UncheckedIOException;
+import java.lang.reflect.Constructor;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.AbstractMap.SimpleEntry;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.TimeZone;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
+
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_MAX_RESULT_SET_SIZE;
+import static org.janusgraph.graphdb.configuration.GraphDatabaseConfiguration.INDEX_NS;
 
 /**
  * @author Jared Holmberg (jholmberg@bericotechnologies.com), Pavel Yaskevich (pavel@thinkaurelius.com)
@@ -173,7 +170,7 @@ public class SolrIndex implements IndexProvider {
      * TODO Rename ZOOKEEPER_URL and "zookeeper-url" to ZOOKEEPER_URLS and
      * "zookeeper-urls" in future major releases.
      */
-    public static final ConfigOption<String[]> ZOOKEEPER_URL = new ConfigOption<String[]>(SOLR_NS,"zookeeper-url",
+    public static final ConfigOption<String[]> ZOOKEEPER_URL = new ConfigOption<>(SOLR_NS, "zookeeper-url",
             "URL of the Zookeeper instance coordinating the SolrCloud cluster",
             ConfigOption.Type.MASKABLE, new String[] { "localhost:2181" });
 
@@ -223,7 +220,7 @@ public class SolrIndex implements IndexProvider {
 
     /** Security Configuration */
 
-    public static final ConfigOption<Boolean> KERBEROS_ENABLED = new ConfigOption<Boolean>(SOLR_NS,"kerberos-enabled",
+    public static final ConfigOption<Boolean> KERBEROS_ENABLED = new ConfigOption<>(SOLR_NS, "kerberos-enabled",
             "Whether SOLR instance is Kerberized or not.",
             ConfigOption.Type.MASKABLE, false);
 
@@ -276,32 +273,28 @@ public class SolrIndex implements IndexProvider {
                 // Process possible zookeeper chroot. e.g. localhost:2181/solr
                 // chroot has to be the same assuming one Zookeeper ensemble.
                 // Parse from the last string. If found, take it as the chroot.
-                String chroot = null;
+                Optional<String> chroot = Optional.empty();
                 for (int i = zookeeperUrl.length - 1; i >= 0; i--) {
                     int chrootIndex = zookeeperUrl[i].indexOf("/");
                     if (chrootIndex != -1) {
                         String hostAndPort = zookeeperUrl[i].substring(0, chrootIndex);
-                        if (chroot == null) {
-                            chroot = zookeeperUrl[i].substring(chrootIndex);
+                        if (!chroot.isPresent()) {
+                            chroot = Optional.of(zookeeperUrl[i].substring(chrootIndex));
                         }
                         zookeeperUrl[i] = hostAndPort;
                     }
                 }
-                final CloudSolrClient.Builder builder = new CloudSolrClient.Builder()
+                final CloudSolrClient.Builder builder = new CloudSolrClient
+                    .Builder(Arrays.asList(zookeeperUrl), chroot)
                     .withLBHttpSolrClientBuilder(
                         new LBHttpSolrClient.Builder()
                             .withHttpSolrClientBuilder(new HttpSolrClient.Builder().withInvariantParams(clientParams))
                             .withBaseSolrUrls(config.get(HTTP_URLS))
                          )
-                    .withZkHost(Arrays.asList(zookeeperUrl))
                     .sendUpdatesOnlyToShardLeaders();
-                if (chroot != null) {
-                    builder.withZkChroot(chroot);
-                }
                 final CloudSolrClient cloudServer = builder.build();
                 cloudServer.connect();
                 solrClient = cloudServer;
-
                 break;
             case HTTP:
                 clientParams.add(HttpClientUtil.PROP_ALLOW_COMPRESSION, config.get(HTTP_ALLOW_COMPRESSION).toString());
@@ -739,10 +732,12 @@ public class SolrIndex implements IndexProvider {
             final String key = atom.getKey();
             final JanusGraphPredicate predicate = atom.getPredicate();
 
-            if (value instanceof Number) {
+            if (value == null && predicate == Cmp.NOT_EQUAL) {
+                return key + ":*";
+            } else if (value instanceof Number) {
                 final String queryValue = escapeValue(value);
                 Preconditions.checkArgument(predicate instanceof Cmp,
-                        "Relation not supported on numeric types: " + predicate);
+                        "Relation not supported on numeric types: %s", predicate);
                 final Cmp numRel = (Cmp) predicate;
                 switch (numRel) {
                     case EQUAL:
@@ -789,7 +784,7 @@ public class SolrIndex implements IndexProvider {
                         return ("-" + key + ":\"" + escapeValue(value) + "\"");
                     }
                 } else if (predicate == Text.FUZZY || predicate == Text.CONTAINS_FUZZY) {
-                    return (key + ":"+escapeValue(value)+"~");
+                    return (key + ":"+escapeValue(value)+"~"+Text.getMaxEditDistance(value.toString()));
                 } else if (predicate == Cmp.LESS_THAN) {
                     return (key + ":[* TO \"" + escapeValue(value) + "\"}");
                 } else if (predicate == Cmp.LESS_THAN_EQUAL) {
@@ -804,9 +799,9 @@ public class SolrIndex implements IndexProvider {
             } else if (value instanceof Geoshape) {
                 final Mapping map = Mapping.getMapping(information.get(key));
                 Preconditions.checkArgument(predicate instanceof Geo && predicate != Geo.DISJOINT,
-                        "Relation not supported on geo types: " + predicate);
+                        "Relation not supported on geo types: %s", predicate);
                 Preconditions.checkArgument(map == Mapping.PREFIX_TREE || predicate == Geo.WITHIN || predicate == Geo.INTERSECT,
-                        "Relation not supported on geopoint types: " + predicate);
+                        "Relation not supported on geopoint types: %s", predicate);
                 final Geoshape geo = (Geoshape)value;
                 if (geo.getType() == Geoshape.Type.CIRCLE && (predicate == Geo.INTERSECT || map == Mapping.DEFAULT)) {
                     final Geoshape.Point center = geo.getPoint();
@@ -826,8 +821,7 @@ public class SolrIndex implements IndexProvider {
             } else if (value instanceof Date || value instanceof Instant) {
                 final String s = value.toString();
                 final String queryValue = escapeValue(value instanceof Date ? toIsoDate((Date) value) : value.toString());
-                Preconditions.checkArgument(predicate instanceof Cmp, "Relation not supported on date types: "
-                        + predicate);
+                Preconditions.checkArgument(predicate instanceof Cmp, "Relation not supported on date types: %s", predicate);
                 final Cmp numRel = (Cmp) predicate;
 
                 switch (numRel) {
@@ -977,7 +971,7 @@ public class SolrIndex implements IndexProvider {
 
     @Override
     public void close() throws BackendException {
-        logger.trace("Shutting down connection to Solr", solrClient);
+        logger.trace("Shutting down connection to Solr {}", solrClient);
         try {
             solrClient.close();
         } catch (final IOException e) {

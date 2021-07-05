@@ -15,16 +15,18 @@
 package org.janusgraph.graphdb.relations;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
+import org.apache.tinkerpop.gremlin.structure.VertexProperty;
+import org.janusgraph.core.JanusGraphVertexProperty;
 import org.janusgraph.core.PropertyKey;
 import org.janusgraph.graphdb.internal.ElementLifeCycle;
 import org.janusgraph.graphdb.internal.InternalVertex;
 import org.janusgraph.graphdb.types.system.ImplicitKey;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * @author Matthias Broecheler (me@matthiasb.com)
@@ -32,18 +34,26 @@ import java.util.Map;
 
 public class StandardVertexProperty extends AbstractVertexProperty implements StandardRelation, ReassignableRelation {
 
+    private static final Map<PropertyKey, Object> EMPTY_PROPERTIES = Collections.emptyMap();
+
+    private boolean isUpsert;
+    private byte lifecycle;
+    private long previousID = 0;
+    private volatile Map<PropertyKey, Object> properties = EMPTY_PROPERTIES;
+
     public StandardVertexProperty(long id, PropertyKey type, InternalVertex vertex, Object value, byte lifecycle) {
         super(id, type, vertex, value);
         this.lifecycle = lifecycle;
     }
 
-    //############## SAME CODE AS StandardEdge #############################
-
-    private static final Map<PropertyKey, Object> EMPTY_PROPERTIES = ImmutableMap.of();
-
-    private byte lifecycle;
-    private long previousID = 0;
-    private volatile Map<PropertyKey, Object> properties = EMPTY_PROPERTIES;
+    /**
+     * Mark this property as 'upsert', i.e. the old property value is not read from DB and marked as
+     * deleted in the transaction
+     * @param upsert
+     */
+    public void setUpsert(final boolean upsert) {
+        isUpsert = upsert;
+    }
 
     @Override
     public long getPreviousID() {
@@ -71,7 +81,7 @@ public class StandardVertexProperty extends AbstractVertexProperty implements St
             } else {
                 synchronized (this) {
                     if (properties == EMPTY_PROPERTIES) {
-                        properties = Collections.synchronizedMap(new HashMap<PropertyKey, Object>(5));
+                        properties = Collections.synchronizedMap(new HashMap<>(5));
                     }
                 }
             }
@@ -81,7 +91,7 @@ public class StandardVertexProperty extends AbstractVertexProperty implements St
 
     @Override
     public Iterable<PropertyKey> getPropertyKeysDirect() {
-        return Lists.newArrayList(properties.keySet());
+        return new ArrayList<>(properties.keySet());
     }
 
     @Override
@@ -101,6 +111,11 @@ public class StandardVertexProperty extends AbstractVertexProperty implements St
         if (!ElementLifeCycle.isRemoved(lifecycle)) {
             tx().removeRelation(this);
             lifecycle = ElementLifeCycle.update(lifecycle, ElementLifeCycle.Event.REMOVED);
+            if (isUpsert) {
+                VertexProperty.Cardinality cardinality = ((PropertyKey) type).cardinality().convert();
+                Consumer<JanusGraphVertexProperty> propertyRemover = JanusGraphVertexProperty.getRemover(cardinality, value());
+                element().query().types(type.name()).properties().forEach(propertyRemover);
+            }
         } //else throw InvalidElementException.removedException(this);
     }
 

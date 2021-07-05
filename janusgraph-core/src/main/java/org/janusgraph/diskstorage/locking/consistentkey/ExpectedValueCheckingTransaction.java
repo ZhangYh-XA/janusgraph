@@ -15,22 +15,25 @@
 package org.janusgraph.diskstorage.locking.consistentkey;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-
-import org.janusgraph.diskstorage.*;
-import org.janusgraph.diskstorage.keycolumnvalue.*;
+import org.janusgraph.diskstorage.BackendException;
+import org.janusgraph.diskstorage.BaseTransactionConfig;
+import org.janusgraph.diskstorage.Entry;
+import org.janusgraph.diskstorage.StaticBuffer;
+import org.janusgraph.diskstorage.keycolumnvalue.KeyColumnValueStore;
+import org.janusgraph.diskstorage.keycolumnvalue.KeySliceQuery;
+import org.janusgraph.diskstorage.keycolumnvalue.StoreTransaction;
 import org.janusgraph.diskstorage.locking.LocalLockMediator;
 import org.janusgraph.diskstorage.locking.Locker;
 import org.janusgraph.diskstorage.locking.PermanentLockingException;
 import org.janusgraph.diskstorage.util.BackendOperation;
 import org.janusgraph.diskstorage.util.BufferUtil;
 import org.janusgraph.diskstorage.util.KeyColumn;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -234,7 +237,7 @@ public class ExpectedValueCheckingTransaction implements StoreTransaction {
         Iterable<Entry> actualEntries = store.getBackingStore().getSlice(ksq, strongConsistentTx);
 
         if (null == actualEntries)
-            actualEntries = ImmutableList.of();
+            actualEntries = Collections.emptyList();
 
         /*
          * Discard any columns which do not exactly match kc.getColumn().
@@ -265,9 +268,9 @@ public class ExpectedValueCheckingTransaction implements StoreTransaction {
         final Iterable<StaticBuffer> expectedValues;
 
         if (null == ev) {
-            expectedValues = ImmutableList.of();
+            expectedValues = Collections.emptyList();
         } else {
-            expectedValues = ImmutableList.of(ev);
+            expectedValues = Collections.singletonList(ev);
         }
 
         if (!Iterables.elementsEqual(expectedValues, actualValues)) {

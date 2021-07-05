@@ -14,14 +14,13 @@
 
 package org.janusgraph.graphdb.internal;
 
-import com.google.common.primitives.Longs;
-import org.janusgraph.core.*;
-import org.janusgraph.graphdb.idmanagement.IDManager;
-import org.janusgraph.graphdb.relations.RelationIdentifier;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
+import org.janusgraph.core.JanusGraphElement;
+import org.janusgraph.graphdb.idmanagement.IDManager;
+import org.janusgraph.graphdb.relations.RelationIdentifier;
 
 /**
  * AbstractElement is the base class for all elements in JanusGraph.
@@ -83,7 +82,7 @@ public abstract class AbstractElement implements InternalElement, Comparable<Jan
     public static int compare(JanusGraphElement e1, JanusGraphElement e2) {
         long e1id = (e1 instanceof AbstractElement)?((AbstractElement)e1).getCompareId():e1.longId();
         long e2id = (e2 instanceof AbstractElement)?((AbstractElement)e2).getCompareId():e2.longId();
-        return Longs.compare(e1id,e2id);
+        return Long.compare(e1id,e2id);
     }
 
     @Override

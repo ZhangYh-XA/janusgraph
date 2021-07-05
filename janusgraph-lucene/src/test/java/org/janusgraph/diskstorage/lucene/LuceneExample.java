@@ -17,15 +17,26 @@ package org.janusgraph.diskstorage.lucene;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import org.locationtech.spatial4j.context.SpatialContext;
-import org.locationtech.spatial4j.shape.Shape;
-import org.janusgraph.core.attribute.Geoshape;
-import org.janusgraph.util.system.IOUtils;
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.*;
-import org.apache.lucene.index.*;
-import org.apache.lucene.search.*;
+import org.apache.lucene.document.Document;
+import org.apache.lucene.document.DoublePoint;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.LongPoint;
+import org.apache.lucene.document.StringField;
+import org.apache.lucene.document.TextField;
+import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexReader;
+import org.apache.lucene.index.IndexWriter;
+import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.IndexableField;
+import org.apache.lucene.index.Term;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.MatchAllDocsQuery;
+import org.apache.lucene.search.PrefixQuery;
+import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.spatial.SpatialStrategy;
 import org.apache.lucene.spatial.prefix.RecursivePrefixTreeStrategy;
 import org.apache.lucene.spatial.prefix.tree.GeohashPrefixTree;
@@ -34,8 +45,12 @@ import org.apache.lucene.spatial.query.SpatialArgs;
 import org.apache.lucene.spatial.query.SpatialOperation;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
+import org.janusgraph.core.attribute.Geoshape;
+import org.janusgraph.util.system.IOUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.locationtech.spatial4j.context.SpatialContext;
+import org.locationtech.spatial4j.shape.Shape;
 
 import java.io.File;
 import java.io.IOException;
@@ -55,8 +70,8 @@ public abstract class LuceneExample {
 
     private static final int MAX_RESULT = 10000;
 
-    final private Map<String,SpatialStrategy> spatial= new HashMap<>();
-    final private SpatialContext ctx = SpatialContext.GEO;
+    private final Map<String,SpatialStrategy> spatial= new HashMap<>();
+    private final SpatialContext ctx = SpatialContext.GEO;
 
     @BeforeEach
     public void setup() {
@@ -124,7 +139,7 @@ public abstract class LuceneExample {
         qb.add(new MatchAllDocsQuery(), BooleanClause.Occur.SHOULD);
         qb.add(filter.build(), BooleanClause.Occur.FILTER);
         TopDocs docs = searcher.search(qb.build(), MAX_RESULT);
-        if (docs.totalHits>=MAX_RESULT) throw new RuntimeException("Max results exceeded: " + MAX_RESULT);
+        if (docs.totalHits.value>=MAX_RESULT) throw new RuntimeException("Max results exceeded: " + MAX_RESULT);
 
         Set<String> result = getResults(searcher,docs);
         System.out.println(result);
@@ -133,7 +148,7 @@ public abstract class LuceneExample {
 
     private Set<String> getResults(IndexSearcher searcher, TopDocs docs) throws IOException {
         Set<String> found = Sets.newHashSet();
-        for (int i = 0; i < docs.totalHits; i++) {
+        for (int i = 0; i < docs.totalHits.value; i++) {
             found.add(searcher.doc(docs.scoreDocs[i].doc).getField("docid").stringValue());
         }
         return found;

@@ -15,16 +15,16 @@
 package org.janusgraph.diskstorage.berkeleyje;
 
 import com.google.common.base.Preconditions;
+import com.sleepycat.je.CacheMode;
 import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.Transaction;
 import org.janusgraph.diskstorage.BackendException;
-import org.janusgraph.diskstorage.PermanentBackendException;
 import org.janusgraph.diskstorage.BaseTransactionConfig;
+import org.janusgraph.diskstorage.PermanentBackendException;
 import org.janusgraph.diskstorage.common.AbstractStoreTransaction;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,15 +38,17 @@ public class BerkeleyJETx extends AbstractStoreTransaction {
     private volatile Transaction tx;
     private volatile boolean isOpen;
     private final List<Cursor> openCursors = new ArrayList<>();
-    private final LockMode lm;
+    private final LockMode lockMode;
+    private final CacheMode cacheMode;
 
-    public BerkeleyJETx(Transaction t, LockMode lockMode, BaseTransactionConfig config) {
+    public BerkeleyJETx(Transaction t, LockMode lockMode, CacheMode cacheMode, BaseTransactionConfig config) {
         super(config);
         tx = t;
-        lm = lockMode;
+        this.lockMode = lockMode;
+        this.cacheMode = cacheMode;
         isOpen = true;
         // tx may be null
-        Preconditions.checkNotNull(lm);
+        Preconditions.checkNotNull(this.lockMode);
     }
 
     public Transaction getTransaction() {
@@ -77,8 +79,12 @@ public class BerkeleyJETx extends AbstractStoreTransaction {
         }
     }
 
+    CacheMode getCacheMode() {
+        return cacheMode;
+    }
+
     LockMode getLockMode() {
-        return lm;
+        return lockMode;
     }
 
     @Override
@@ -86,7 +92,7 @@ public class BerkeleyJETx extends AbstractStoreTransaction {
         super.rollback();
         if (tx == null) return;
         if (log.isTraceEnabled())
-            log.trace("{} rolled back", this.toString(), new TransactionClose(this.toString()));
+            log.trace("{} rolled back", this, new TransactionClose(this.toString()));
         try {
             isOpen = false;
             closeOpenCursors();
@@ -102,7 +108,7 @@ public class BerkeleyJETx extends AbstractStoreTransaction {
         super.commit();
         if (tx == null) return;
         if (log.isTraceEnabled())
-            log.trace("{} committed", this.toString(), new TransactionClose(this.toString()));
+            log.trace("{} committed", this, new TransactionClose(this.toString()));
         try {
             isOpen = false;
             closeOpenCursors();
